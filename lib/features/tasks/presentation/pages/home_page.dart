@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:task_manager/features/auth/presentation/bloc/auth_bloc.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'schedule_page.dart';
 import 'create_category_page.dart';
@@ -58,12 +60,25 @@ class _HomePageState extends State<HomePage> {
               
               const SizedBox(height: 32),
               // Greeting
-              const Text(
-                'Hi Tania!',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
+              BlocBuilder<AuthBloc, AuthState>(
+                builder: (context, state) {
+                  if (state is Authenticated) {
+                    return Text(
+                      'Hi ${state.user.name}!',
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    );
+                  }
+                  return const Text(
+                    'Hi there!',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 24),
               // Upcoming task card
