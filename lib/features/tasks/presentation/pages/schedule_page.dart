@@ -296,10 +296,10 @@ class _TaskItem extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
+                  color: Colors.blue.shade100,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.edit, color: Colors.black54),
+                child: const Icon(Icons.schedule, color: Colors.blue),
               ),
               const SizedBox(width: 10),
               Container(
@@ -315,34 +315,62 @@ class _TaskItem extends StatelessWidget {
         ),
         confirmDismiss: (direction) async {
           if (direction == DismissDirection.endToStart) {
-            return await showDialog(
+            // Показуємо нижню панель з опціями
+            showModalBottomSheet(
               context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: const Text('Confirm Action'),
-                  content: const Text('Do you want to delete this task?'),
-                  actions: <Widget>[
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).pop(true);
-                        if (onDelete != null) onDelete!();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Task deleted'),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              builder: (context) => Container(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.schedule, color: Colors.blue),
+                      title: const Text('Відтермінувати'),
+                      onTap: () {
+                        Navigator.pop(context); // Закриваємо bottom sheet
+                        if (onEdit != null) {
+                          onEdit!(); // Викликаємо функцію відтермінування
+                        }
                       },
-                      child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.delete, color: Colors.red),
+                      title: const Text('Видалити', style: TextStyle(color: Colors.red)),
+                      onTap: () {
+                        Navigator.pop(context); // Закриваємо bottom sheet
+                        if (onDelete != null) {
+                          onDelete!(); // Викликаємо функцію видалення
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Завдання видалено'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.grey,
+                          ),
+                          child: const Text('Скасувати'),
+                        ),
+                      ),
                     ),
                   ],
-                );
-              },
+                ),
+              ),
             );
+            return false; // Не видаляємо елемент автоматично
           }
           return false;
         },

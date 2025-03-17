@@ -1,29 +1,13 @@
 import 'package:flutter/material.dart';
 import 'register_page.dart';
+import 'package:task_manager/features/tasks/presentation/pages/home_page.dart';
 
-class LoginPage extends StatefulWidget {
+class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
-
-  @override
-  State<LoginPage> createState() => _LoginPageState();
-}
-
-class _LoginPageState extends State<LoginPage> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _isPasswordVisible = false;
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FF),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -32,14 +16,14 @@ class _LoginPageState extends State<LoginPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: SafeArea(
+      body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text(
-                'Welcome back! Glad\nto see you, Again!',
+                'Welcome back! Glad to see you, Again!',
                 style: TextStyle(
                   fontSize: 30,
                   fontWeight: FontWeight.w600,
@@ -47,28 +31,15 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 32),
               TextField(
-                controller: _emailController,
                 decoration: const InputDecoration(
                   hintText: 'Enter your email',
                 ),
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: _passwordController,
-                obscureText: !_isPasswordVisible,
-                decoration: InputDecoration(
+                obscureText: true,
+                decoration: const InputDecoration(
                   hintText: 'Enter your password',
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _isPasswordVisible ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.grey,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _isPasswordVisible = !_isPasswordVisible;
-                      });
-                    },
-                  ),
                 ),
               ),
               Align(
@@ -89,7 +60,13 @@ class _LoginPageState extends State<LoginPage> {
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    // Add your login logic here
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) => const HomePage()),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2F80ED),
                     foregroundColor: Colors.white,
@@ -123,7 +100,9 @@ class _LoginPageState extends State<LoginPage> {
                 width: double.infinity,
                 height: 56,
                 child: OutlinedButton.icon(
-                  onPressed: () {},
+                  onPressed: () {
+                    // Add your Google sign-in logic here
+                  },
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
                     side: const BorderSide(color: Colors.grey, width: 1),
@@ -145,7 +124,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [

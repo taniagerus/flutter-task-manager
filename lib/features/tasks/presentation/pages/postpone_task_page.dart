@@ -37,9 +37,15 @@ class _PostponeTaskPageState extends State<PostponeTaskPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              widget.taskTitle,
-              style: Theme.of(context).textTheme.titleLarge,
+            const Text(
+              'Task Title',
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              decoration: const InputDecoration(
+                hintText: 'Enter new task title',
+              ),
             ),
             const SizedBox(height: 24),
             const Text('Select date'),

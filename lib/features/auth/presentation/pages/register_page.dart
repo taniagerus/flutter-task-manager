@@ -1,34 +1,12 @@
 import 'package:flutter/material.dart';
-import 'login_page.dart';
+import 'package:task_manager/features/tasks/presentation/pages/home_page.dart';
 
-class RegisterPage extends StatefulWidget {
+class RegisterPage extends StatelessWidget {
   const RegisterPage({super.key});
-
-  @override
-  State<RegisterPage> createState() => _RegisterPageState();
-}
-
-class _RegisterPageState extends State<RegisterPage> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-  final _nameController = TextEditingController();
-  bool _isPasswordVisible = false;
-  bool _isConfirmPasswordVisible = false;
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    _confirmPasswordController.dispose();
-    _nameController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FF),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -37,14 +15,14 @@ class _RegisterPageState extends State<RegisterPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
+      body: Center(
+        child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text(
-                'Hello! Register to get\nstarted',
+                'Hello! Register to get started',
                 style: TextStyle(
                   fontSize: 30,
                   fontWeight: FontWeight.w600,
@@ -52,54 +30,22 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               const SizedBox(height: 32),
               TextField(
-                controller: _emailController,
                 decoration: const InputDecoration(
                   hintText: 'Enter your email',
                 ),
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: _passwordController,
-                obscureText: !_isPasswordVisible,
-                decoration: InputDecoration(
-                  hintText: 'Enter password',
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _isPasswordVisible ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.grey,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _isPasswordVisible = !_isPasswordVisible;
-                      });
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _confirmPasswordController,
-                obscureText: !_isConfirmPasswordVisible,
-                decoration: InputDecoration(
-                  hintText: 'Enter password once more',
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _isConfirmPasswordVisible ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.grey,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
-                      });
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _nameController,
+                obscureText: true,
                 decoration: const InputDecoration(
-                  hintText: 'Enter your name',
+                  hintText: 'Enter your password',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                obscureText: true,
+                decoration: const InputDecoration(
+                  hintText: 'Confirm your password',
                 ),
               ),
               const SizedBox(height: 32),
@@ -107,7 +53,13 @@ class _RegisterPageState extends State<RegisterPage> {
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    // Add your registration logic here
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) => const HomePage()),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2F80ED),
                     foregroundColor: Colors.white,
@@ -117,7 +69,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
                   ),
                   child: const Text(
-                    'Sign up',
+                    'Register',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
@@ -141,7 +93,9 @@ class _RegisterPageState extends State<RegisterPage> {
                 width: double.infinity,
                 height: 56,
                 child: OutlinedButton.icon(
-                  onPressed: () {},
+                  onPressed: () {
+                    // Add your Google sign-in logic here
+                  },
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
                     side: const BorderSide(color: Colors.grey, width: 1),
@@ -167,15 +121,10 @@ class _RegisterPageState extends State<RegisterPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text('Already have an account?'),
+                  const Text("Already have an account?"),
                   TextButton(
                     onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const LoginPage(),
-                        ),
-                      );
+                      Navigator.pop(context); // Go back to the login page
                     },
                     child: const Text(
                       'Login',
