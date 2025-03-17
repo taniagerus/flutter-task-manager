@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:task_manager/features/auth/presentation/bloc/auth_bloc.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'schedule_page.dart';
@@ -16,6 +17,18 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
+  User? get currentUser => FirebaseAuth.instance.currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen to user changes
+    FirebaseAuth.instance.userChanges().listen((User? user) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
 
   void _onBottomNavTap(int index) {
     if (index == _currentIndex) return;
@@ -60,25 +73,12 @@ class _HomePageState extends State<HomePage> {
               
               const SizedBox(height: 32),
               // Greeting
-              BlocBuilder<AuthBloc, AuthState>(
-                builder: (context, state) {
-                  if (state is Authenticated) {
-                    return Text(
-                      'Hi ${state.user.name}!',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    );
-                  }
-                  return const Text(
-                    'Hi there!',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  );
-                },
+              Text(
+                'Hi ${currentUser?.displayName ?? "there"}!',
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 24),
               // Upcoming task card

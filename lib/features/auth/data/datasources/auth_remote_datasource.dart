@@ -35,18 +35,30 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<User> signUp(String email, String password, String name) async {
-    final userCredential = await _auth.createUserWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
+    try {
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
 
-    await userCredential.user?.updateDisplayName(name);
+      // Update the user profile with the name
+      await userCredential.user?.updateDisplayName(name);
+      
+      // Force reload the user to get updated data
+      await userCredential.user?.reload();
+      
+      // Get the updated user data
+      final updatedUser = _auth.currentUser;
+      if (updatedUser == null) throw Exception('User not found after registration');
 
-    return User(
-      id: userCredential.user!.uid,
-      email: userCredential.user!.email!,
-      name: name,
-    );
+      return User(
+        id: updatedUser.uid,
+        email: updatedUser.email!,
+        name: name, // Use the provided name directly
+      );
+    } catch (e) {
+      throw Exception('Failed to sign up: ${e.toString()}');
+    }
   }
 
   @override

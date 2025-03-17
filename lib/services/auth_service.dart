@@ -1,109 +1,179 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
- Future<void> signup({
-  required String email,
-  required String password,
-  required String name,
-  required BuildContext context,
- }) async {
-  try {
-    // Створюємо користувача
-    final UserCredential userCredential = await FirebaseAuth.instance
-        .createUserWithEmailAndPassword(email: email, password: password);
-    
-    // Оновлюємо профіль користувача з ім'ям
-    await userCredential.user?.updateDisplayName(name);
-    
-  } on FirebaseAuthException catch (e) {
-    String errorMessage;
-    
+  final _auth = FirebaseAuth.instance;
+  Future<UserCredential?> signInWithGoogle() async {
+    try {
+      // Ініціалізуємо Google Sign In
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        scopes: [
+          'email',
+          'profile',
+        ],
+      );
+
+      // Показуємо діалог вибору акаунта Google
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      
+      // Якщо користувач скасував вхід
+      if (googleUser == null) {
+        throw FirebaseAuthException(
+          code: 'sign_in_canceled',
+          message: 'Вхід скасовано користувачем',
+        );
+      }
+
+      // Отримуємо дані автентифікації
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Створюємо обліковий запис Firebase
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Входимо в Firebase
+      return await FirebaseAuth.instance.signInWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code,
+        message: _handleAuthException(e),
+      );
+    } catch (e) {
+      throw FirebaseAuthException(
+        code: 'google_sign_in_failed',
+        message: 'Помилка входу через Google: ${e.toString()}',
+      );
+    }
+  }
+  String _handleAuthException(FirebaseAuthException e) {
     switch (e.code) {
+      // Реєстрація
       case 'weak-password':
-        errorMessage = 'The password is too weak.';
-        break;
+        return 'Пароль занадто слабкий. Використовуйте мінімум 6 символів.';
       case 'email-already-in-use':
-        errorMessage = 'The account already exists for that email.';
-        break;
+        return 'Обліковий запис з цією електронною поштою вже існує.';
       case 'invalid-email':
-        errorMessage = 'The email address is not valid.';
-        break;
-      default:
-        errorMessage = e.message ?? 'An error occurred during registration.';
-    }
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(errorMessage),
-        backgroundColor: Colors.red,
-      ),
-    );
-    
-    throw Exception(errorMessage);
-  } catch (e) {
-    const errorMessage = 'An unexpected error occurred.';
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(errorMessage),
-        backgroundColor: Colors.red,
-      ),
-    );
-    
-    throw Exception(errorMessage);
-  }
- }
- 
- Future<void> signin({
-  required String email,
-  required String password,
-  required BuildContext context,
- }) async {
-  try {
-    await FirebaseAuth.instance.signInWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
-  } on FirebaseAuthException catch (e) {
-    String errorMessage;
-    
-    switch (e.code) {
+        return 'Недійсна адреса електронної пошти.';
+      case 'operation-not-allowed':
+        return 'Реєстрація з електронною поштою та паролем вимкнена.';
+      
+      // Вхід
       case 'user-not-found':
-        errorMessage = 'No user found for that email.';
-        break;
+        return 'Користувача з такою електронною поштою не знайдено.';
       case 'wrong-password':
-        errorMessage = 'Wrong password provided for that user.';
-        break;
-      case 'invalid-email':
-        errorMessage = 'The email address is not valid.';
-        break;
+        return 'Неправильний пароль.';
       case 'user-disabled':
-        errorMessage = 'This user has been disabled.';
-        break;
+        return 'Цей обліковий запис було вимкнено.';
+      case 'too-many-requests':
+        return 'Забагато невдалих спроб. Спробуйте пізніше.';
+      
+      // Загальні помилки
+      case 'network-request-failed':
+        return 'Помилка мережі. Перевірте підключення до Інтернету.';
+      case 'invalid-credential':
+        return 'Надані облікові дані недійсні.';
+      case 'account-exists-with-different-credential':
+        return 'Обліковий запис вже існує з іншим методом входу.';
+      case 'requires-recent-login':
+        return 'Ця операція чутлива до безпеки. Увійдіть знову та повторіть спробу.';
+      
       default:
-        errorMessage = e.message ?? 'An error occurred during sign in.';
+        return e.message ?? 'Сталася невідома помилка.';
     }
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(errorMessage),
-        backgroundColor: Colors.red,
-      ),
-    );
-    
-    throw Exception(errorMessage);
-  } catch (e) {
-    const errorMessage = 'An unexpected error occurred.';
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(errorMessage),
-        backgroundColor: Colors.red,
-      ),
-    );
-    
-    throw Exception(errorMessage);
   }
- }
+
+  Future<void> signup({
+    required String email,
+    required String password,
+    required String name,
+    required BuildContext context,
+  }) async {
+    try {
+      final UserCredential userCredential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: password);
+      
+      await userCredential.user?.updateDisplayName(name);
+      
+    } on FirebaseAuthException catch (e) {
+      final errorMessage = _handleAuthException(e);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+      
+      throw Exception(errorMessage);
+    } catch (e) {
+      const errorMessage = 'Сталася неочікувана помилка.';
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+      
+      throw Exception(errorMessage);
+    }
+  }
+  
+  Future<void> signin({
+    required String email,
+    required String password,
+    required BuildContext context,
+  }) async {
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (e) {
+      final errorMessage = _handleAuthException(e);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+      
+      throw Exception(errorMessage);
+    } catch (e) {
+      const errorMessage = 'Сталася неочікувана помилка.';
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+      
+      throw Exception(errorMessage);
+    }
+  }
+
+  Future<void> signOut() async {
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final isSignedIn = await googleSignIn.isSignedIn();
+      
+      // Спочатку виходимо з Firebase
+      await _auth.signOut();
+      
+      // Якщо користувач був увійшовший через Google, виходимо з Google
+      if (isSignedIn) {
+        await googleSignIn.signOut();
+      }
+    } on FirebaseAuthException catch (e) {
+      final errorMessage = _handleAuthException(e);
+      throw Exception(errorMessage);
+    } catch (e) {
+      throw Exception('Не вдалося вийти з системи. Спробуйте ще раз.');
+    }
+  }
 }
