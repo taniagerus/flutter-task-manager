@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:task_manager/features/tasks/presentation/pages/home_page.dart';
-import 'package:task_manager/features/auth/presentation/pages/welcome_page.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:task_manager/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:task_manager/features/auth/domain/usecases/sign_in.dart';
@@ -10,7 +8,6 @@ import 'package:task_manager/features/auth/domain/usecases/sign_up.dart';
 import 'package:task_manager/features/auth/domain/usecases/sign_in_with_google.dart';
 import 'package:task_manager/features/auth/data/repositories/auth_repository_impl.dart';
 import 'package:task_manager/features/auth/data/datasources/auth_remote_datasource.dart';
-import 'package:task_manager/features/auth/presentation/pages/login_page.dart';
 import 'package:task_manager/features/auth/wrapper.dart';
 
 // Змінна для швидкого перемикання між сторінками під час розробки

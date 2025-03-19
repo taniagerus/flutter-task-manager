@@ -69,15 +69,20 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   @override
   Future<User> signInWithGoogle() async {
     try {
+      // Діалог вибору акаунта Google
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) throw Exception('Google sign in aborted');
 
+      // Отримуємо автентифікаційні дані
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      
+      // Створюємо обліковий запис Firebase
       final credential = firebase_auth.GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
+      // Авторизуємось в Firebase
       final userCredential = await _auth.signInWithCredential(credential);
       final firebaseUser = userCredential.user;
       
@@ -89,7 +94,11 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         name: firebaseUser.displayName,
       );
     } catch (e) {
-      throw Exception('Failed to sign in with Google: ${e.toString()}');
+      if (e.toString().contains('12500')) {
+        throw Exception('Перевірте наявність та актуальність Google Play Services на вашому пристрої');
+      } else {
+        throw Exception('Помилка входу через Google: ${e.toString()}');
+      }
     }
   }
 } 

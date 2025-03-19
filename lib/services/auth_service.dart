@@ -6,23 +6,15 @@ class AuthService {
   final _auth = FirebaseAuth.instance;
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      // Ініціалізуємо Google Sign In
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        scopes: [
-          'email',
-          'profile',
-        ],
-      );
+      // Ініціалізуємо Google Sign In з мінімальними налаштуваннями
+      final GoogleSignIn googleSignIn = GoogleSignIn();
 
       // Показуємо діалог вибору акаунта Google
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
       
       // Якщо користувач скасував вхід
       if (googleUser == null) {
-        throw FirebaseAuthException(
-          code: 'sign_in_canceled',
-          message: 'Вхід скасовано користувачем',
-        );
+        return null;
       }
 
       // Отримуємо дані автентифікації
@@ -36,16 +28,15 @@ class AuthService {
 
       // Входимо в Firebase
       return await FirebaseAuth.instance.signInWithCredential(credential);
-    } on FirebaseAuthException catch (e) {
-      throw FirebaseAuthException(
-        code: e.code,
-        message: _handleAuthException(e),
-      );
     } catch (e) {
-      throw FirebaseAuthException(
-        code: 'google_sign_in_failed',
-        message: 'Помилка входу через Google: ${e.toString()}',
-      );
+      print('Google Sign-In error: ${e.toString()}');
+      
+      // Handle specific error codes
+      if (e.toString().contains('12500')) {
+        throw Exception('Перевірте наявність та актуальність Google Play Services на вашому пристрої');
+      } else {
+        throw Exception('Помилка входу через Google: ${e.toString()}');
+      }
     }
   }
   String _handleAuthException(FirebaseAuthException e) {
@@ -160,20 +151,29 @@ class AuthService {
   Future<void> signOut() async {
     try {
       final GoogleSignIn googleSignIn = GoogleSignIn();
-      final isSignedIn = await googleSignIn.isSignedIn();
       
       // Спочатку виходимо з Firebase
       await _auth.signOut();
       
-      // Якщо користувач був увійшовший через Google, виходимо з Google
+      // Перевіряємо, чи користувач увійшов через Google
+      final isSignedIn = await googleSignIn.isSignedIn();
       if (isSignedIn) {
         await googleSignIn.signOut();
       }
+    } catch (e) {
+      print('Sign out error: ${e.toString()}');
+      throw Exception('Не вдалося вийти з системи. Спробуйте ще раз.');
+    }
+  }
+  
+  Future<void> resetPassword(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
     } on FirebaseAuthException catch (e) {
       final errorMessage = _handleAuthException(e);
       throw Exception(errorMessage);
     } catch (e) {
-      throw Exception('Не вдалося вийти з системи. Спробуйте ще раз.');
+      throw Exception('Не вдалося відправити лист для скидання пароля. Спробуйте ще раз.');
     }
   }
 }

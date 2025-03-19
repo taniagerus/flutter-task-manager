@@ -4,7 +4,6 @@ import 'package:task_manager/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:task_manager/services/auth_service.dart';
 import 'package:task_manager/features/tasks/presentation/pages/home_page.dart';
 import 'login_page.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -258,25 +257,28 @@ class _RegisterPageState extends State<RegisterPage> {
                   onPressed: () async {
                     try {
                       final authService = AuthService();
-                      final userCredential = await authService.signInWithGoogle();
                       
+                      // Show loading indicator
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Signing in with Google...'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                      
+                      final userCredential = await authService.signInWithGoogle();
                       if (userCredential != null && context.mounted) {
-                        context.read<AuthBloc>().add(GoogleSignInRequested());
-                      }
-                    } on FirebaseAuthException catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(e.message ?? 'Помилка входу через Google'),
-                            backgroundColor: Colors.red,
-                          ),
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(builder: (context) => const HomePage()),
+                          (route) => false,
                         );
                       }
                     } catch (e) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Помилка входу через Google: ${e.toString()}'),
+                            content: Text('Error signing in with Google: ${e.toString()}'),
                             backgroundColor: Colors.red,
                           ),
                         );

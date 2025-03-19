@@ -48,6 +48,8 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.android.gms:play-services-auth:20.7.0")
+    implementation("com.google.android.gms:play-services-base:18.2.0")
+    implementation("com.google.firebase:firebase-auth-ktx:22.3.0")
 }
 
 flutter {

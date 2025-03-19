@@ -22,6 +22,7 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  final TextEditingController _resetEmailController = TextEditingController();
 
   @override
   void initState() {
@@ -35,7 +36,95 @@ class _LoginPageState extends State<LoginPage> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _resetEmailController.dispose();
     super.dispose();
+  }
+
+  void _showForgotPasswordDialog() {
+    _resetEmailController.text = _emailController.text;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Скидання пароля'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Введіть адресу електронної пошти для отримання інструкцій зі скидання пароля',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _resetEmailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                hintText: 'Електронна пошта',
+                filled: true,
+                fillColor: const Color(0xFFF7F8F9),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFFE8ECF4)),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.grey,
+            ),
+            child: const Text('Скасувати'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (_resetEmailController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Будь ласка, введіть адресу електронної пошти'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+              
+              try {
+                final authService = AuthService();
+                await authService.resetPassword(_resetEmailController.text.trim());
+                
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Інструкції зі скидання пароля надіслано на вашу електронну пошту'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(e.toString().replaceAll('Exception: ', '')),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2F80ED),
+            ),
+            child: const Text('Надіслати'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -138,7 +227,7 @@ class _LoginPageState extends State<LoginPage> {
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: () {},
+                  onPressed: _showForgotPasswordDialog,
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF2F80ED),
                   ),
@@ -198,25 +287,28 @@ class _LoginPageState extends State<LoginPage> {
                   onPressed: () async {
                     try {
                       final authService = AuthService();
-                      final userCredential = await authService.signInWithGoogle();
                       
+                      // Show loading indicator
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Signing in with Google...'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                      
+                      final userCredential = await authService.signInWithGoogle();
                       if (userCredential != null && context.mounted) {
-                        context.read<AuthBloc>().add(GoogleSignInRequested());
-                      }
-                    } on FirebaseAuthException catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(e.message ?? 'Помилка входу через Google'),
-                            backgroundColor: Colors.red,
-                          ),
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(builder: (context) => const HomePage()),
+                          (route) => false,
                         );
                       }
                     } catch (e) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Помилка входу через Google: ${e.toString()}'),
+                            content: Text('Error signing in with Google: ${e.toString()}'),
                             backgroundColor: Colors.red,
                           ),
                         );

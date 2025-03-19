@@ -70,18 +70,6 @@ class _SchedulePageState extends State<SchedulePage> {
     });
   }
 
-  void _editTask(int index) {
-    final task = _currentDayTasks[index];
-    final updatedTask = task.copyWith(
-      title: "${task.title} (Later)",
-    );
-
-    setState(() {
-      final String dateKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      _tasksByDay[dateKey]?[index] = updatedTask;
-    });
-  }
-
   void _toggleTaskCompletion(int index) {
     setState(() {
       final String dateKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
