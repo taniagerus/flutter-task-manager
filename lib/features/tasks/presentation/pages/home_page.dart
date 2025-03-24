@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'schedule_page.dart';
 import 'create_category_page.dart';
 import 'statistics_page.dart';
 import 'user_profile_page.dart';
+import '../../domain/entities/category_entity.dart';
+import '../../data/repositories/category_repository_impl.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -16,16 +19,100 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   User? get currentUser => FirebaseAuth.instance.currentUser;
+  final _categoryRepository = CategoryRepositoryImpl();
+  List<CategoryEntity> _userCategories = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    print('HomePage: initState викликано');
     // Listen to user changes
     FirebaseAuth.instance.userChanges().listen((User? user) {
       if (mounted) {
         setState(() {});
+        _loadCategories();
       }
     });
+    _loadCategories();
+    _createDefaultCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    print('HomePage: _loadCategories викликано');
+    if (currentUser == null) {
+      print('HomePage: користувач не авторизований');
+      return;
+    }
+    
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      final categories = await _categoryRepository.getCategories(currentUser!.uid);
+      print('Завантажено категорій: ${categories.length}');
+      categories.forEach((cat) {
+        print('Категорія: ${cat.name}, ID: ${cat.id}, IconData: ${cat.icon}');
+      });
+      
+      setState(() {
+        _userCategories = categories;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Помилка завантаження категорій: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _createDefaultCategories() async {
+ 
+    try {
+      // Перевіряємо, чи вже створені стандартні категорії
+      final snapshot = await FirebaseFirestore.instance
+          .collection('categories')
+          .where('userId', isEqualTo: currentUser!.uid)
+          .where('isDefault', isEqualTo: true)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        await _categoryRepository.createCategory(
+          id: 'health-${currentUser!.uid}',
+          name: 'Health',
+          color: const Color(0xFFFFE5E5),
+          icon: Icons.favorite_outline,
+          userId: currentUser!.uid,
+          isDefault: true,
+        );
+
+        await _categoryRepository.createCategory(
+          id: 'personal-${currentUser!.uid}',
+          name: 'Personal',
+          color: const Color(0xFFE5F1FF),
+          icon: Icons.person_outline,
+          userId: currentUser!.uid,
+          isDefault: true,
+        );
+
+        await _categoryRepository.createCategory(
+          id: 'work-${currentUser!.uid}',
+          name: 'Work',
+          color: const Color(0xFFFFF4E5),
+          icon: Icons.work_outline,
+          userId: currentUser!.uid,
+          isDefault: true,
+        );
+
+        // Оновлюємо список категорій
+        print('HomePage: стандартні категорії створено, завантажуємо їх');
+        _loadCategories();
+      }
+    } catch (e) {
+      print('Помилка створення стандартних категорій: $e');
+    }
   }
 
   void _onBottomNavTap(int index) {
@@ -55,6 +142,122 @@ class _HomePageState extends State<HomePage> {
           _currentIndex = index;
         });
     }
+  }
+
+  // Конвертує колір з формату HEX в об'єкт Color
+  Color _hexToColor(String hexString) {
+    final hexColor = hexString.replaceFirst('#', '');
+    return Color(int.parse('FF$hexColor', radix: 16));
+  }
+
+  // Конвертує назву іконки в об'єкт IconData
+  IconData _getIconData(String iconName) {
+    print('Отримана назва іконки: $iconName');
+    
+    // Перевірка на порожній рядок або null
+    if (iconName.isEmpty) {
+      print('Порожня назва іконки, використовую іконку за замовчуванням');
+      return Icons.category_outlined;
+    }
+    
+    // Фіксовані іконки для стандартних категорій
+    // Це безпечний запасний варіант, якщо іконки не визначено правильно
+    if (iconName == 'health' || iconName.contains('health')) {
+      return Icons.favorite_outline;
+    } else if (iconName == 'personal' || iconName.contains('personal')) {
+      return Icons.person_outline;
+    } else if (iconName == 'work' || iconName.contains('work')) {
+      return Icons.work_outline;
+    } else if (iconName == 'flight' || iconName.contains('flight')) {
+      return Icons.flight_outlined;
+    } else if (iconName == 'edit' || iconName.contains('edit')) {
+      return Icons.edit_outlined;
+    } else if (iconName == 'school' || iconName.contains('school')) {
+      return Icons.school_outlined;
+    }
+    
+    // Спрощена версія без лишніх суфіксів
+    final simplifiedName = iconName.replaceAll('_outlined', '').replaceAll('_outline', '');
+    print('Спрощена назва іконки: $simplifiedName');
+    
+    switch (simplifiedName) {
+      case 'school': return Icons.school_outlined;
+      case 'groups': return Icons.groups_outlined;
+      case 'home': return Icons.home_outlined;
+      case 'favorite': return Icons.favorite_outline;
+      case 'flight': return Icons.flight_outlined;
+      case 'edit': return Icons.edit_outlined;
+      case 'shopping_cart': return Icons.shopping_cart_outlined;
+      case 'fastfood': return Icons.fastfood_outlined;
+      case 'fitness': 
+      case 'fitness_center': return Icons.fitness_center_outlined;
+      case 'car': 
+      case 'directions_car': return Icons.directions_car_outlined;
+      case 'smile': 
+      case 'sentiment_satisfied': return Icons.sentiment_satisfied_outlined;
+      case 'gift': 
+      case 'card_giftcard': return Icons.card_giftcard_outlined;
+      case 'person': return Icons.person_outline;
+      case 'work': return Icons.work_outline;
+      case 'category': return Icons.category_outlined;
+      default:
+        // Пробуємо обробити оригінальну назву (з суфіксом)
+        switch (iconName) {
+          case 'school_outlined': return Icons.school_outlined;
+          case 'groups_outlined': return Icons.groups_outlined;
+          case 'home_outlined': return Icons.home_outlined;
+          case 'favorite_outline': return Icons.favorite_outline;
+          case 'flight_outlined': return Icons.flight_outlined;
+          case 'edit_outlined': return Icons.edit_outlined;
+          case 'shopping_cart_outlined': return Icons.shopping_cart_outlined;
+          case 'fastfood_outlined': return Icons.fastfood_outlined;
+          case 'fitness_center_outlined': return Icons.fitness_center_outlined;
+          case 'directions_car_outlined': return Icons.directions_car_outlined;
+          case 'sentiment_satisfied_outlined': return Icons.sentiment_satisfied_outlined;
+          case 'card_giftcard_outlined': return Icons.card_giftcard_outlined;
+          case 'person_outline': return Icons.person_outline;
+          case 'work_outline': return Icons.work_outline;
+          case 'category_outlined': return Icons.category_outlined;
+          default:
+            print('Невідома іконка: $iconName, використовую іконку за замовчуванням');
+            return Icons.category_outlined;
+        }
+    }
+  }
+
+  // Відображаємо стандартні категорії, коли список порожній
+  List<Widget> _buildDefaultCategoryCards() {
+    return [
+      _CategoryCard(
+        icon: Icons.favorite_outline,
+        title: 'Health',
+        color: const Color(0xFFFFE5E5),
+        iconColor: const Color(0xFFFF9B9B),
+        tasksLeft: 0,
+        tasksDone: 0,
+      ),
+      _CategoryCard(
+        icon: Icons.person_outline,
+        title: 'Personal',
+        color: const Color(0xFFE5F1FF),
+        iconColor: const Color(0xFF2F80ED),
+        tasksLeft: 0,
+        tasksDone: 0,
+      ),
+      _CategoryCard(
+        icon: Icons.work_outline,
+        title: 'Work',
+        color: const Color(0xFFFFF4E5),
+        iconColor: const Color(0xFFFFB156),
+        tasksLeft: 0,
+        tasksDone: 0,
+      ),
+      _AddCategoryCard(
+        onCategoryCreated: () {
+          _loadCategories();
+        },
+      ),
+    ];
   }
 
   @override
@@ -124,41 +327,124 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const SizedBox(height: 32),
-              // Categories grid
-              Expanded(
-                child: GridView.count(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  children: [
-                    const _CategoryCard(
-                      icon: Icons.favorite_outline,
-                      title: 'Health',
-                      color: Color(0xFFFFE5E5),
-                      iconColor: Color(0xFFFF9B9B),
-                      tasksLeft: 2,
-                      tasksDone: 2,
-                    ),
-                    const _CategoryCard(
-                      icon: Icons.person_outline,
-                      title: 'Personal',
-                      color: Color(0xFFE5F1FF),
-                      iconColor: Color(0xFF2F80ED),
-                      tasksLeft: 2,
-                      tasksDone: 2,
-                    ),
-                    const _CategoryCard(
-                      icon: Icons.work_outline,
-                      title: 'Work',
-                      color: Color(0xFFFFF4E5),
-                      iconColor: Color(0xFFFFB156),
-                      tasksLeft: 2,
-                      tasksDone: 2,
-                    ),
-                    _AddCategoryCard(),
-                  ],
+              // Categories header
+              const Text(
+                'Categories',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
+              const SizedBox(height: 16),
+              // Categories grid
+              _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : Expanded(
+                      child: _userCategories.isEmpty 
+                      ? GridView.count(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          childAspectRatio: 1,
+                          children: _buildDefaultCategoryCards(),
+                        )
+                      : GridView.builder(
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 16,
+                            crossAxisSpacing: 16,
+                            childAspectRatio: 1,
+                          ),
+                          itemCount: _userCategories.length + 1, // +1 для кнопки створення нової категорії
+                          itemBuilder: (context, index) {
+                            // Остання карточка - це кнопка додавання нової категорії
+                            if (index == _userCategories.length) {
+                              return _AddCategoryCard(
+                                onCategoryCreated: () {
+                                  print('Викликано _loadCategories після створення категорії');
+                                  _loadCategories();
+                                },
+                              );
+                            }
+                            
+                            // Відображення існуючої категорії
+                            final category = _userCategories[index];
+                            print('Відображення категорії $index: ${category.name}, іконка: ${category.icon}');
+                            
+                            // Виправлено: встановлюємо конкретні іконки за назвою категорії
+                            IconData iconData;
+                            
+                            // Визначаємо іконку на основі назви категорії (найбільш надійний спосіб)
+                            final lowerCaseName = category.name.toLowerCase();
+                            if (lowerCaseName.contains('health')) {
+                              iconData = Icons.favorite_outline;
+                            } else if (lowerCaseName.contains('personal')) {
+                              iconData = Icons.person_outline;
+                            } else if (lowerCaseName.contains('work')) {
+                              iconData = Icons.work_outline;
+                            } else if (lowerCaseName == 'hmhmg') {
+                              iconData = Icons.home_outlined;
+                            } else if (lowerCaseName.contains('home')) {
+                              iconData = Icons.home_outlined;
+                            } else if (lowerCaseName.contains('smile')) {
+                              iconData = Icons.sentiment_satisfied_outlined;
+                            } else if (lowerCaseName.contains('trip') || lowerCaseName.contains('travel')) {
+                              iconData = Icons.flight_outlined;
+                            } else if (lowerCaseName.contains('edit') || lowerCaseName.contains('write')) {
+                              iconData = Icons.edit_outlined;
+                            } else if (lowerCaseName.contains('school') || lowerCaseName.contains('study')) {
+                              iconData = Icons.school_outlined;
+                            } else if (lowerCaseName.contains('shop') || lowerCaseName.contains('cart')) {
+                              iconData = Icons.shopping_cart_outlined;
+                            } else if (lowerCaseName.contains('food')) {
+                              iconData = Icons.fastfood_outlined;
+                            } else if (lowerCaseName.contains('fitness') || lowerCaseName.contains('gym')) {
+                              iconData = Icons.fitness_center_outlined;
+                            } else if (lowerCaseName.contains('car') || lowerCaseName.contains('drive')) {
+                              iconData = Icons.directions_car_outlined;
+                            } else if (lowerCaseName.contains('gift')) {
+                              iconData = Icons.card_giftcard_outlined;
+                            } else if (category.icon.isNotEmpty) {
+                              // Якщо назва категорії не містить відомих ключових слів, але є значення іконки
+                              iconData = _getIconData(category.icon);
+                            } else {
+                              // Якщо нічого не підходить, використовуємо стандартну іконку
+                              iconData = Icons.category_outlined;
+                            }
+                            
+                            // Встановлюємо контрастний колір для іконки
+                            Color iconColor;
+                            if (lowerCaseName.contains('health')) {
+                              iconColor = const Color(0xFFFF9B9B);
+                            } else if (lowerCaseName.contains('personal')) {
+                              iconColor = const Color(0xFF2F80ED);
+                            } else if (lowerCaseName.contains('work')) {
+                              iconColor = const Color(0xFFFFB156);
+                            } else if (lowerCaseName.contains('trip') || lowerCaseName.contains('travel')) {
+                              iconColor = const Color(0xFF56C2FF);
+                            } else {
+                              // Для інших категорій використовуємо темніший відтінок кольору категорії
+                              final baseColor = _hexToColor(category.colour);
+                              // Створюємо темніший відтінок для кращого контрасту
+                              iconColor = HSLColor.fromColor(baseColor)
+                                  .withSaturation(0.8)  // Збільшуємо насиченість
+                                  .withLightness(0.4)   // Зменшуємо яскравість для темнішого кольору
+                                  .toColor();
+                            }
+                            
+                            print('Використовуємо іконку: $iconData для категорії ${category.name} з кольором $iconColor');
+                            
+                            return _CategoryCard(
+                              icon: iconData,
+                              title: category.name,
+                              color: _hexToColor(category.colour),
+                              iconColor: iconColor,
+                              tasksLeft: 2,
+                              tasksDone: 2,
+                            );
+                          },
+                        ),
+                    ),
             ],
           ),
         ),
@@ -265,14 +551,26 @@ class _TaskCountChip extends StatelessWidget {
 }
 
 class _AddCategoryCard extends StatelessWidget {
+  final VoidCallback onCategoryCreated;
+
+  const _AddCategoryCard({
+    required this.onCategoryCreated,
+  });
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
+      onTap: () async {
+        final result = await Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => const CreateCategoryPage()),
         );
+        
+        print('Результат після створення категорії: $result');
+        
+        if (result == true) {
+          onCategoryCreated();
+        }
       },
       child: Container(
         decoration: BoxDecoration(

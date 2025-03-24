@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'home_page.dart';
 import 'create_task_page.dart';
@@ -7,6 +8,8 @@ import 'postpone_task_page.dart';
 import 'task_details_page.dart';
 import 'statistics_page.dart';
 import 'user_profile_page.dart';
+import '../../domain/entities/task_entity.dart';
+import '../../data/repositories/task_repository_impl.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({Key? key}) : super(key: key);
@@ -18,43 +21,46 @@ class SchedulePage extends StatefulWidget {
 class _SchedulePageState extends State<SchedulePage> {
   DateTime _selectedDate = DateTime.now();
   int _currentIndex = 1;
-
-  // Map to store tasks by day (yyyy-MM-dd string format)
-  final Map<String, List<Task>> _tasksByDay = {};
+  List<TaskEntity> _tasks = [];
+  bool _isLoading = true;
+  final _repository = TaskRepositoryImpl();
 
   @override
   void initState() {
     super.initState();
-    // Initialize with sample tasks for today
-    final String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    _tasksByDay[today] = [
-      const Task(
-        title: 'Read my book',
-        time: '11:00 am - 12:00 pm',
-        category: 'Personal',
-        color: Color(0xFF98E7EF),
-        isDone: false,
-      ),
-      const Task(
-        title: 'Take paracetamol',
-        time: '11:00 am - 12:00 pm',
-        category: 'Health',
-        color: Color(0xFFFFCCCC),
-        isDone: false,
-      ),
-      const Task(
-        title: 'Join the meeting',
-        time: '11:00 am - 12:00 pm',
-        category: 'Work',
-        color: Color(0xFFFDEAAC),
-        isDone: false,
-      ),
-    ];
+    _loadTasks();
   }
 
-  List<Task> get _currentDayTasks {
-    final String dateKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    return _tasksByDay[dateKey] ?? [];
+  Future<void> _loadTasks() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final tasks = await _repository.getTasks(user.uid);
+        setState(() {
+          _tasks = tasks;
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Помилка завантаження завдань: $e')),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<TaskEntity> get _currentDayTasks {
+    return _tasks.where((task) {
+      final taskDate = DateFormat('yyyy-MM-dd').format(task.date);
+      final selectedDate = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      return taskDate == selectedDate;
+    }).toList();
   }
 
   void _onDaySelected(DateTime date) {
@@ -63,21 +69,43 @@ class _SchedulePageState extends State<SchedulePage> {
     });
   }
 
-  void _deleteTask(int index) {
-    setState(() {
-      final String dateKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      _tasksByDay[dateKey]?.removeAt(index);
-    });
+  void _deleteTask(String taskId) async {
+    try {
+      await _repository.deleteTask(taskId);
+      _loadTasks(); // Перезавантажуємо список після видалення
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Помилка видалення завдання: $e')),
+      );
+    }
   }
 
-  void _toggleTaskCompletion(int index) {
-    setState(() {
-      final String dateKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      final task = _tasksByDay[dateKey]?[index];
-      if (task != null) {
-        _tasksByDay[dateKey]?[index] = task.copyWith(isDone: !task.isDone);
-      }
-    });
+  void _toggleTaskCompletion(TaskEntity task) async {
+    try {
+      // Створюємо копію завдання з оновленим статусом
+      final updatedTask = TaskEntity(
+        id: task.id,
+        name: task.name,
+        note: task.note,
+        date: task.date,
+        startTime: task.startTime,
+        endTime: task.endTime,
+        category: task.category,
+        remindMe: task.remindMe,
+        reminderMinutes: task.reminderMinutes,
+        repeatOption: task.repeatOption,
+        userId: task.userId,
+        isCompleted: !task.isCompleted,
+        createdAt: task.createdAt,
+      );
+      
+      await _repository.updateTask(updatedTask);
+      _loadTasks(); // Перезавантажуємо список
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Помилка оновлення завдання: $e')),
+      );
+    }
   }
 
   void _onBottomNavTap(int index) {
@@ -121,7 +149,6 @@ class _SchedulePageState extends State<SchedulePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-             
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -134,55 +161,99 @@ class _SchedulePageState extends State<SchedulePage> {
                 ),
               ),
               const SizedBox(height: 32),
-              // Tasks section
-              const Text(
-                'Tasks',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Tasks',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if (_isLoading)
+                    Container(
+                      width: 24,
+                      height: 24,
+                      padding: const EdgeInsets.all(4),
+                      child: const CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 16),
               Expanded(
-                child: ListView.builder(
-                  itemCount: _currentDayTasks.length,
-                  itemBuilder: (context, index) {
-                    final task = _currentDayTasks[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: _TaskItem(
-                        task: task,
-                        onToggle: () {
-                          _toggleTaskCompletion(index);
-                        },
-                        onDelete: () {
-                          _deleteTask(index);
-                        },
-                        onEdit: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => PostponeTaskPage(
-                                taskTitle: task.title,
+                child: _isLoading
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 40,
+                              height: 40,
+                              child: CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
+                                strokeWidth: 3,
                               ),
                             ),
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              "Loading your tasks...",
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Color(0xFF7A7A7A),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _currentDayTasks.isEmpty
+                        ? _buildEmptyState()
+                        : ListView.builder(
+                            itemCount: _currentDayTasks.length,
+                            itemBuilder: (context, index) {
+                              final task = _currentDayTasks[index];
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: _TaskItem(
+                                  task: Task(
+                                    title: task.name,
+                                    time: '${task.startTime} - ${task.endTime}',
+                                    category: task.category,
+                                    color: _getCategoryColor(task.category),
+                                    isDone: task.isCompleted,
+                                  ),
+                                  onToggle: () => _toggleTaskCompletion(task),
+                                  onDelete: () => _deleteTask(task.id),
+                                  onEdit: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => PostponeTaskPage(
+                                          taskTitle: task.name,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          ),
               ),
             ],
           ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
+        onPressed: () async {
+          await Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const CreateTaskPage()),
           );
+          _loadTasks(); // Перезавантажуємо після створення нового завдання
         },
         backgroundColor: const Color(0xFF2F80ED),
         child: const Icon(Icons.add, color: Colors.white),
@@ -192,6 +263,19 @@ class _SchedulePageState extends State<SchedulePage> {
         onTap: _onBottomNavTap,
       ),
     );
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'Personal':
+        return const Color(0xFF98E7EF);
+      case 'Health':
+        return const Color(0xFFFFCCCC);
+      case 'Work':
+        return const Color(0xFFFDEAAC);
+      default:
+        return Colors.grey;
+    }
   }
 
   List<Widget> _buildWeekDays() {
@@ -244,6 +328,50 @@ class _SchedulePageState extends State<SchedulePage> {
     }
 
     return days;
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEEF4FF),
+              borderRadius: BorderRadius.circular(50),
+            ),
+            child: const Icon(
+              Icons.calendar_today,
+              size: 50,
+              color: Color(0xFF2F80ED),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            "No tasks scheduled",
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF555555),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              "Create a new task to organize your day better",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Color(0xFF7A7A7A),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:uuid/uuid.dart';
+import '../../domain/repositories/category_repository.dart';
+import '../../data/repositories/category_repository_impl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class CreateCategoryPage extends StatefulWidget {
   const CreateCategoryPage({Key? key}) : super(key: key);
@@ -11,6 +16,8 @@ class _CreateCategoryPageState extends State<CreateCategoryPage> {
   final TextEditingController _nameController = TextEditingController();
   Color _selectedColor = const Color(0xFFFFCCCC);
   IconData _selectedIcon = Icons.flight_outlined;
+  bool _isLoading = false;
+  final _categoryRepository = CategoryRepositoryImpl();
 
   final List<Color> _colors = [
     const Color(0xFFFFCCCC), // Pink
@@ -37,6 +44,114 @@ class _CreateCategoryPageState extends State<CreateCategoryPage> {
     Icons.sentiment_satisfied_outlined,
     Icons.card_giftcard_outlined,
   ];
+
+  Future<void> _saveCategory() async {
+    if (_nameController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a category name.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
+
+      final categoryId = const Uuid().v4();
+      
+      print('Створення нової категорії: ${_nameController.text}');
+      print('ID: $categoryId, Колір: ${_selectedColor.toString()}, Іконка: ${_selectedIcon.toString()}');
+      print('Іконка IconData: ${{
+        "codePoint": _selectedIcon.codePoint,
+        "fontFamily": _selectedIcon.fontFamily,
+        "fontPackage": _selectedIcon.fontPackage,
+      }}');
+      
+      // Фіксоване відображення іконок для нових категорій
+      String iconName = 'category_outlined';
+      
+      // Перетворюємо іконку на рядок
+      if (_selectedIcon == Icons.school_outlined) {
+        iconName = 'school_outlined';
+      } else if (_selectedIcon == Icons.groups_outlined) {
+        iconName = 'groups_outlined';
+      } else if (_selectedIcon == Icons.home_outlined) {
+        iconName = 'home_outlined';
+      } else if (_selectedIcon == Icons.favorite_outline) {
+        iconName = 'favorite_outline';
+      } else if (_selectedIcon == Icons.flight_outlined) {
+        iconName = 'flight_outlined';
+      } else if (_selectedIcon == Icons.edit_outlined) {
+        iconName = 'edit_outlined';
+      } else if (_selectedIcon == Icons.shopping_cart_outlined) {
+        iconName = 'shopping_cart_outlined';
+      } else if (_selectedIcon == Icons.fastfood_outlined) {
+        iconName = 'fastfood_outlined';
+      } else if (_selectedIcon == Icons.fitness_center_outlined) {
+        iconName = 'fitness_center_outlined';
+      } else if (_selectedIcon == Icons.directions_car_outlined) {
+        iconName = 'directions_car_outlined';
+      } else if (_selectedIcon == Icons.sentiment_satisfied_outlined) {
+        iconName = 'sentiment_satisfied_outlined';
+      } else if (_selectedIcon == Icons.card_giftcard_outlined) {
+        iconName = 'card_giftcard_outlined';
+      }
+      
+      print('Визначено назву іконки: $iconName');
+      
+      // Специфічна іконка для назви категорії
+      if (_nameController.text.toLowerCase().contains('health')) {
+        iconName = 'favorite_outline';
+      } else if (_nameController.text.toLowerCase().contains('personal')) {
+        iconName = 'person_outline';
+      } else if (_nameController.text.toLowerCase().contains('work')) {
+        iconName = 'work_outline';
+      }
+      
+      print('Фінальна назва іконки: $iconName');
+      
+      // Зберігаємо в Firestore з додатковим полем iconCodePoint
+      await FirebaseFirestore.instance.collection('categories').doc(categoryId).set({
+        'id': categoryId,
+        'name': _nameController.text,
+        'colour': '#${_selectedColor.value.toRadixString(16).substring(2)}',
+        'icon': iconName,
+        'iconCodePoint': _selectedIcon.codePoint, // Додаємо код іконки
+        'userId': user.uid,
+        'isDefault': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      
+      print('Категорія успішно збережена в Firestore');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Category created successfully')),
+        );
+        print('Категорія успішно створена, повертаю результат true');
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      print('Помилка при створенні категорії: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create category: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -191,32 +306,29 @@ class _CreateCategoryPageState extends State<CreateCategoryPage> {
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton(
-                        onPressed: () {
-                          if (_nameController.text.isNotEmpty) {
-                            Navigator.pop(context, {
-                              'name': _nameController.text,
-                              'color': _selectedColor,
-                              'icon': _selectedIcon,
-                            });
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Please enter a category name.')),
-                            );
-                          }
-                        },
+                        onPressed: _isLoading ? null : _saveCategory,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF2F80ED),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text(
-                          'Create',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Create',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                       ),
                     ),
                   ],

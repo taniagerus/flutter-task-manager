@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 import '../../domain/entities/task_entity.dart';
 import '../../domain/usecases/create_task_usecase.dart';
 import '../../data/repositories/task_repository_impl.dart';
+import '../../domain/entities/category_entity.dart';
+import '../../data/repositories/category_repository_impl.dart';
 
 class CreateTaskPage extends StatefulWidget {
   const CreateTaskPage({Key? key}) : super(key: key);
@@ -31,15 +33,68 @@ class _CreateTaskPageState extends State<CreateTaskPage> {
   bool _remindMe = false;
   String _repeatOption = 'Weekly';
   
-  final List<String> _categories = ['Personal', 'Health', 'Work'];
   final List<String> _repeatOptions = ['Daily', 'Weekly', 'Monthly', 'Never'];
 
   double _reminderTime = 30;
+
+  late final CategoryRepositoryImpl _categoryRepository;
+  List<CategoryEntity> _categoriesFromDb = [];
 
   @override
   void initState() {
     super.initState();
     _createTaskUseCase = CreateTaskUseCase(TaskRepositoryImpl());
+    _categoryRepository = CategoryRepositoryImpl();
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final categories = await _categoryRepository.getCategories(user.uid);
+      setState(() {
+        _categoriesFromDb = categories;
+      });
+    }
+  }
+
+  List<String> get _categories {
+    List<String> defaultCategories = ['Personal', 'Health', 'Work'];
+    
+    for (var category in _categoriesFromDb) {
+      if (!defaultCategories.contains(category.name)) {
+        defaultCategories.add(category.name);
+      }
+    }
+    
+    return defaultCategories;
+  }
+
+  Color _getCategoryColor(String category) {
+    for (var dbCategory in _categoriesFromDb) {
+      if (dbCategory.name == category) {
+        return _getColorFromHex(dbCategory.colour);
+      }
+    }
+    
+    switch (category) {
+      case 'Personal':
+        return const Color(0xFF2F80ED); // Blue
+      case 'Health':
+        return const Color(0xFFFF9B9B); // Pink/Red
+      case 'Work':
+        return const Color(0xFFFFB156); // Orange
+      default:
+        return Colors.blue;
+    }
+  }
+
+  Color _getColorFromHex(String hexColor) {
+    hexColor = hexColor.replaceAll('#', '');
+    if (hexColor.length == 6) {
+      hexColor = 'FF$hexColor';
+    }
+    return Color(int.parse(hexColor, radix: 16));
   }
 
   @override
@@ -406,19 +461,6 @@ class _CreateTaskPageState extends State<CreateTaskPage> {
           _selectedTimeRange = TimeRange(startTime: startTime, endTime: endTime);
         });
       }
-    }
-  }
-  
-  Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'Personal':
-        return const Color(0xFF2F80ED); // Blue
-      case 'Health':
-        return const Color(0xFFFF9B9B); // Pink/Red
-      case 'Work':
-        return const Color(0xFFFFB156); // Orange
-      default:
-        return Colors.blue;
     }
   }
   

@@ -38,14 +38,31 @@ class TaskRepositoryImpl implements TaskRepository {
       final snapshot = await _firestore
           .collection('tasks')
           .where('userId', isEqualTo: userId)
-          .orderBy('date', descending: false)
           .get();
 
-      return snapshot.docs
-          .map((doc) => TaskModel.fromJson(doc.data()))
+      if (snapshot.docs.isEmpty) {
+        return [];
+      }
+
+      final tasks = snapshot.docs
+          .map((doc) {
+            try {
+              return TaskModel.fromJson(doc.data());
+            } catch (e) {
+              print('Помилка перетворення документа: $e');
+              return null;
+            }
+          })
+          .where((task) => task != null)
+          .cast<TaskEntity>()
           .toList();
+
+      tasks.sort((a, b) => a.date.compareTo(b.date));
+      
+      return tasks;
     } catch (e) {
-      throw Exception('Failed to get tasks: $e');
+      print('Помилка завантаження завдань: $e');
+      return [];
     }
   }
 
