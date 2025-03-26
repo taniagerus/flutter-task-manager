@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'home_page.dart';
 import 'create_task_page.dart';
@@ -18,17 +19,40 @@ class SchedulePage extends StatefulWidget {
   State<SchedulePage> createState() => _SchedulePageState();
 }
 
-class _SchedulePageState extends State<SchedulePage> {
+class _SchedulePageState extends State<SchedulePage>
+    with SingleTickerProviderStateMixin {
   DateTime _selectedDate = DateTime.now();
+  DateTime _focusedDay = DateTime.now();
   int _currentIndex = 1;
-  List<TaskEntity> _tasks = [];
   bool _isLoading = true;
   final _repository = TaskRepositoryImpl();
+  bool _isCalendarExpanded = false;
+  late AnimationController _animationController;
+  late Animation<double> _animation;
+
+  // Map to store tasks by date for quick lookup
+  Map<DateTime, List<TaskEntity>> _tasksByDate = {};
 
   @override
   void initState() {
     super.initState();
     _loadTasks();
+
+    // Initialize animation controller for calendar toggle
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadTasks() async {
@@ -40,49 +64,102 @@ class _SchedulePageState extends State<SchedulePage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         final tasks = await _repository.getTasks(user.uid);
+
+        // Group tasks by date for more efficient lookup
+        final Map<DateTime, List<TaskEntity>> tasksByDate = {};
+        for (var task in tasks) {
+          final date = DateTime(task.date.year, task.date.month, task.date.day);
+          if (tasksByDate[date] == null) {
+            tasksByDate[date] = [];
+          }
+          tasksByDate[date]!.add(task);
+        }
+
         setState(() {
-          _tasks = tasks;
+          _tasksByDate = tasksByDate;
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Помилка завантаження завдань: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading tasks: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   List<TaskEntity> get _currentDayTasks {
-    return _tasks.where((task) {
-      final taskDate = DateFormat('yyyy-MM-dd').format(task.date);
-      final selectedDate = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      return taskDate == selectedDate;
-    }).toList();
+    final selectedDateKey =
+        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    return _tasksByDate[selectedDateKey] ?? [];
   }
 
-  void _onDaySelected(DateTime date) {
+  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     setState(() {
-      _selectedDate = date;
+      _selectedDate = selectedDay;
+      _focusedDay = focusedDay;
+    });
+  }
+
+  void _toggleCalendar() {
+    setState(() {
+      _isCalendarExpanded = !_isCalendarExpanded;
+      if (_isCalendarExpanded) {
+        _animationController.forward();
+      } else {
+        _animationController.reverse();
+      }
     });
   }
 
   void _deleteTask(String taskId) async {
     try {
       await _repository.deleteTask(taskId);
-      _loadTasks(); // Перезавантажуємо список після видалення
+      _loadTasks();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Task deleted successfully'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            action: SnackBarAction(
+              label: 'UNDO',
+              textColor: Colors.white,
+              onPressed: () {
+                // Ideally implement undo functionality here
+                _loadTasks();
+              },
+            ),
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Помилка видалення завдання: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting task: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
   void _toggleTaskCompletion(TaskEntity task) async {
     try {
-      // Створюємо копію завдання з оновленим статусом
+      // Create a copy of the task with updated status
       final updatedTask = TaskEntity(
         id: task.id,
         name: task.name,
@@ -98,19 +175,25 @@ class _SchedulePageState extends State<SchedulePage> {
         isCompleted: !task.isCompleted,
         createdAt: task.createdAt,
       );
-      
+
       await _repository.updateTask(updatedTask);
-      _loadTasks(); // Перезавантажуємо список
+      _loadTasks();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Помилка оновлення завдання: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating task: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
   void _onBottomNavTap(int index) {
     if (index == _currentIndex) return;
-    
+
     switch (index) {
       case 0:
         Navigator.pushReplacement(
@@ -140,35 +223,155 @@ class _SchedulePageState extends State<SchedulePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Schedule'),
+        title: const Text(
+          'Schedule',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF2F80ED),
+          ),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Color(0xFF2F80ED)),
+            onPressed: _loadTasks,
+            tooltip: 'Refresh tasks',
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.symmetric(horizontal: 20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F7FF),
+              // Calendar section
+              Card(
+                elevation: 2,
+                shadowColor: Colors.black12,
+                shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: _buildWeekDays(),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      // Calendar header
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            DateFormat('MMMM y').format(_selectedDate),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF333333),
+                            ),
+                          ),
+                          InkWell(
+                            onTap: _toggleCalendar,
+                            borderRadius: BorderRadius.circular(30),
+                            child: Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: RotationTransition(
+                                turns: _animation,
+                                child: const Icon(
+                                  Icons.keyboard_arrow_down,
+                                  color: Color(0xFF2F80ED),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      // Expanded calendar view
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        child: _isCalendarExpanded
+                            ? Container(
+                                margin: const EdgeInsets.only(top: 12),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: Colors.white,
+                                ),
+                                child: TableCalendar(
+                                  firstDay: DateTime.now()
+                                      .subtract(const Duration(days: 365)),
+                                  lastDay: DateTime.now()
+                                      .add(const Duration(days: 365 * 2)),
+                                  focusedDay: _focusedDay,
+                                  selectedDayPredicate: (day) =>
+                                      isSameDay(_selectedDate, day),
+                                  onDaySelected: _onDaySelected,
+                                  calendarFormat: CalendarFormat.month,
+                                  eventLoader: (day) {
+                                    final date =
+                                        DateTime(day.year, day.month, day.day);
+                                    return _tasksByDate[date] ?? [];
+                                  },
+                                  headerVisible: false,
+                                  daysOfWeekStyle: const DaysOfWeekStyle(
+                                    weekdayStyle: TextStyle(
+                                        color: Color(0xFF555555),
+                                        fontWeight: FontWeight.w500),
+                                    weekendStyle: TextStyle(
+                                        color: Color(0xFF999999),
+                                        fontWeight: FontWeight.w500),
+                                  ),
+                                  calendarStyle: CalendarStyle(
+                                    defaultTextStyle: const TextStyle(
+                                        color: Color(0xFF333333)),
+                                    weekendTextStyle: const TextStyle(
+                                        color: Color(0xFF666666)),
+                                    outsideTextStyle: const TextStyle(
+                                        color: Color(0xFFCCCCCC)),
+                                    selectedDecoration: const BoxDecoration(
+                                      color: Color(0xFF2F80ED),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    todayDecoration: BoxDecoration(
+                                      color: const Color(0xFF2F80ED)
+                                          .withOpacity(0.2),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    markerDecoration: const BoxDecoration(
+                                      color: Color(0xFF2F80ED),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    markerSize: 6,
+                                    markersMaxCount: 3,
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                margin: const EdgeInsets.only(top: 12),
+                                child: _buildWeekDays(),
+                              ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 32),
+
+              const SizedBox(height: 24),
+
+              // Tasks header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Tasks',
-                    style: TextStyle(
-                      fontSize: 20,
+                  Text(
+                    'Tasks for ${DateFormat('MMMM d, y').format(_selectedDate)}',
+                    style: const TextStyle(
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
+                      color: Color(0xFF333333),
                     ),
                   ),
                   if (_isLoading)
@@ -178,46 +381,28 @@ class _SchedulePageState extends State<SchedulePage> {
                       padding: const EdgeInsets.all(4),
                       child: const CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
                       ),
                     ),
                 ],
               ),
+
               const SizedBox(height: 16),
+
+              // Tasks list
               Expanded(
                 child: _isLoading
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 40,
-                              height: 40,
-                              child: CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
-                                strokeWidth: 3,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            const Text(
-                              "Loading your tasks...",
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Color(0xFF7A7A7A),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
+                    ? _buildLoadingState()
                     : _currentDayTasks.isEmpty
                         ? _buildEmptyState()
                         : ListView.builder(
+                            physics: const BouncingScrollPhysics(),
                             itemCount: _currentDayTasks.length,
                             itemBuilder: (context, index) {
                               final task = _currentDayTasks[index];
                               return Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
+                                padding: const EdgeInsets.only(bottom: 12),
                                 child: _TaskItem(
                                   task: Task(
                                     title: task.name,
@@ -236,7 +421,7 @@ class _SchedulePageState extends State<SchedulePage> {
                                           taskTitle: task.name,
                                         ),
                                       ),
-                                    );
+                                    ).then((_) => _loadTasks());
                                   },
                                 ),
                               );
@@ -253,9 +438,11 @@ class _SchedulePageState extends State<SchedulePage> {
             context,
             MaterialPageRoute(builder: (context) => const CreateTaskPage()),
           );
-          _loadTasks(); // Перезавантажуємо після створення нового завдання
+          _loadTasks();
         },
         backgroundColor: const Color(0xFF2F80ED),
+        elevation: 4,
+        tooltip: 'Create new task',
         child: const Icon(Icons.add, color: Colors.white),
       ),
       bottomNavigationBar: BottomNavBar(
@@ -265,69 +452,156 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'Personal':
-        return const Color(0xFF98E7EF);
-      case 'Health':
-        return const Color(0xFFFFCCCC);
-      case 'Work':
-        return const Color(0xFFFDEAAC);
-      default:
-        return Colors.grey;
-    }
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
+              strokeWidth: 3,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "Loading your tasks...",
+            style: TextStyle(
+              fontSize: 16,
+              color: Color(0xFF7A7A7A),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  List<Widget> _buildWeekDays() {
-    final List<String> weekDays = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-    final List<Widget> days = [];
+  Widget _buildWeekDays() {
+    final List<String> weekDays = [
+      'Mon',
+      'Tue',
+      'Wed',
+      'Thu',
+      'Fri',
+      'Sat',
+      'Sun'
+    ];
 
-    for (int i = 0; i < 7; i++) {
-      final date = DateTime.now().subtract(
-        Duration(days: DateTime.now().weekday - i - 1),
-      );
-      final isSelected = DateFormat('yyyy-MM-dd').format(date) == 
-                         DateFormat('yyyy-MM-dd').format(_selectedDate);
+    // Get Monday of the current week
+    final monday =
+        _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
 
-      days.add(
-        GestureDetector(
-          onTap: () => _onDaySelected(date),
-          child: Column(
-            children: [
-              Text(
-                weekDays[i],
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isSelected ? const Color(0xFF2F80ED) : Colors.grey[600],
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isSelected ? const Color(0xFF2F80ED) : Colors.transparent,
-                ),
-                child: Center(
-                  child: Text(
-                    date.day.toString().padLeft(2, '0'),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: List.generate(7, (i) {
+          final date = monday.add(Duration(days: i));
+          final isSelected = isSameDay(date, _selectedDate);
+          final hasTasks =
+              _tasksByDate[DateTime(date.year, date.month, date.day)]
+                      ?.isNotEmpty ??
+                  false;
+          final isToday = isSameDay(date, DateTime.now());
+
+          return GestureDetector(
+            onTap: () => _onDaySelected(date, date),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              width: 50,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    weekDays[i],
                     style: TextStyle(
-                      fontSize: 14,
-                      color: isSelected ? Colors.white : Colors.black,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                      fontSize: 13,
+                      color: isSelected
+                          ? const Color(0xFF2F80ED)
+                          : isToday
+                              ? Colors.black
+                              : Colors.grey[600],
+                      fontWeight: isSelected || isToday
+                          ? FontWeight.w600
+                          : FontWeight.w500,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected
+                          ? const Color(0xFF2F80ED)
+                          : isToday
+                              ? const Color(0xFFE6F0FF)
+                              : Colors.transparent,
+                      border: isToday && !isSelected
+                          ? Border.all(
+                              color: const Color(0xFF2F80ED), width: 1.5)
+                          : null,
+                    ),
+                    child: Center(
+                      child: Text(
+                        date.day.toString(),
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: isSelected
+                              ? Colors.white
+                              : isToday
+                                  ? const Color(0xFF2F80ED)
+                                  : Colors.black87,
+                          fontWeight: isSelected || isToday
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  if (hasTasks)
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Color(0xFF2F80ED),
+                      ),
+                    ),
+                ],
               ),
-            ],
-          ),
-        ),
-      );
-    }
+            ),
+          );
+        }),
+      ),
+    );
+  }
 
-    return days;
+  bool isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category.toLowerCase()) {
+      case 'personal':
+        return const Color(0xFF98E7EF);
+      case 'health':
+        return const Color(0xFFFFCCCC);
+      case 'work':
+        return const Color(0xFFFDEAAC);
+      case 'hmhmg':
+        return const Color(0xFFD4A5FF);
+      case 'smile':
+        return const Color(0xFFA5FFB8);
+      default:
+        return const Color(0xFFE0E0E0);
+    }
   }
 
   Widget _buildEmptyState() {
@@ -369,6 +643,25 @@ class _SchedulePageState extends State<SchedulePage> {
               ),
             ),
           ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CreateTaskPage()),
+              ).then((_) => _loadTasks());
+            },
+            icon: const Icon(Icons.add),
+            label: const Text("Add Task"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2F80ED),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -388,6 +681,23 @@ class _TaskItem extends StatelessWidget {
     this.onEdit,
   });
 
+  IconData _getCategoryIcon(String category) {
+    switch (category.toLowerCase()) {
+      case 'personal':
+        return Icons.person;
+      case 'health':
+        return Icons.favorite;
+      case 'work':
+        return Icons.work;
+      case 'hmhmg':
+        return Icons.home_work;
+      case 'smile':
+        return Icons.sentiment_satisfied;
+      default:
+        return Icons.category;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -405,33 +715,15 @@ class _TaskItem extends StatelessWidget {
         background: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 20),
-          color: Colors.transparent,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.schedule, color: Colors.blue),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.delete, color: Colors.red),
-              ),
-            ],
+          decoration: BoxDecoration(
+            color: Colors.red.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
           ),
+          child: const Icon(Icons.delete, color: Colors.red),
         ),
         confirmDismiss: (direction) async {
           if (direction == DismissDirection.endToStart) {
-            // Показуємо нижню панель з опціями
+            // Show bottom sheet with options
             showModalBottomSheet(
               context: context,
               shape: const RoundedRectangleBorder(
@@ -442,29 +734,33 @@ class _TaskItem extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                     ListTile(
                       leading: const Icon(Icons.schedule, color: Colors.blue),
-                      title: const Text('Відтермінувати'),
+                      title: const Text('Postpone'),
                       onTap: () {
-                        Navigator.pop(context); // Закриваємо bottom sheet
+                        Navigator.pop(context); // Close bottom sheet
                         if (onEdit != null) {
-                          onEdit!(); // Викликаємо функцію відтермінування
+                          onEdit!(); // Call postpone function
                         }
                       },
                     ),
                     ListTile(
                       leading: const Icon(Icons.delete, color: Colors.red),
-                      title: const Text('Видалити', style: TextStyle(color: Colors.red)),
+                      title: const Text('Delete',
+                          style: TextStyle(color: Colors.red)),
                       onTap: () {
-                        Navigator.pop(context); // Закриваємо bottom sheet
+                        Navigator.pop(context); // Close bottom sheet
                         if (onDelete != null) {
-                          onDelete!(); // Викликаємо функцію видалення
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Завдання видалено'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
+                          onDelete!(); // Call delete function
                         }
                       },
                     ),
@@ -478,7 +774,7 @@ class _TaskItem extends StatelessWidget {
                           style: TextButton.styleFrom(
                             foregroundColor: Colors.grey,
                           ),
-                          child: const Text('Скасувати'),
+                          child: const Text('Cancel'),
                         ),
                       ),
                     ),
@@ -486,100 +782,134 @@ class _TaskItem extends StatelessWidget {
                 ),
               ),
             );
-            return false; // Не видаляємо елемент автоматично
+            return false; // Don't automatically dismiss
           }
           return false;
         },
-        child: Row(
-          children: [
-            Container(
-              width: 4,
-              height: 64,
-              decoration: BoxDecoration(
-                color: task.color,
-                borderRadius: BorderRadius.circular(2),
+        child: Card(
+          elevation: 1,
+          shadowColor: Colors.black12,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: task.color.withOpacity(0.5),
+                width: 1,
               ),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: task.color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+            child: Row(
+              children: [
+                // Category color indicator and icon
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: task.color.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    _getCategoryIcon(task.category),
+                    color: task.color,
+                    size: 20,
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(width: 12),
+                // Task details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        task.title,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          decoration:
+                              task.isDone ? TextDecoration.lineThrough : null,
+                          color: task.isDone ? Colors.grey : Colors.black,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
                         children: [
-                          Text(
-                            task.title,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              decoration: task.isDone ? TextDecoration.lineThrough : null,
-                              color: task.isDone ? Colors.grey : Colors.black,
-                            ),
+                          Icon(
+                            Icons.access_time,
+                            size: 14,
+                            color: Colors.grey[600],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(width: 4),
                           Text(
                             task.time,
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.grey[600],
-                              decoration: task.isDone ? TextDecoration.lineThrough : null,
+                              decoration: task.isDone
+                                  ? TextDecoration.lineThrough
+                                  : null,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(width: 12),
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: task.color.withOpacity(task.isDone ? 0.5 : 1),
+                              color: task.color.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
                               task.category,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: task.isDone ? Colors.grey : Colors.black87,
+                                color: task.isDone
+                                    ? Colors.grey
+                                    : task.color.withOpacity(0.8),
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    GestureDetector(
-                      onTap: onToggle,
-                      child: Container(
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.grey[400]!,
-                            width: 2,
-                          ),
-                          color: task.isDone ? const Color(0xFF2F80ED) : Colors.transparent,
-                        ),
-                        child: task.isDone
-                            ? const Icon(
-                                Icons.check,
-                                size: 16,
-                                color: Colors.white,
-                              )
-                            : null,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+                // Completion toggle
+                GestureDetector(
+                  onTap: onToggle,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: task.isDone
+                            ? const Color(0xFF2F80ED)
+                            : Colors.grey[400]!,
+                        width: 2,
+                      ),
+                      color: task.isDone
+                          ? const Color(0xFF2F80ED)
+                          : Colors.transparent,
+                    ),
+                    child: task.isDone
+                        ? const Icon(
+                            Icons.check,
+                            size: 16,
+                            color: Colors.white,
+                          )
+                        : null,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
