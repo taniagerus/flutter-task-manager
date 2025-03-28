@@ -29,6 +29,8 @@ class _SchedulePageState extends State<SchedulePage>
   bool _isCalendarExpanded = false;
   late AnimationController _animationController;
   late Animation<double> _animation;
+  late ScrollController _weekScrollController;
+  DateTime _visibleMonth = DateTime.now();
 
   // Map to store tasks by date for quick lookup
   Map<DateTime, List<TaskEntity>> _tasksByDate = {};
@@ -37,6 +39,12 @@ class _SchedulePageState extends State<SchedulePage>
   void initState() {
     super.initState();
     _loadTasks();
+    _visibleMonth = _selectedDate;
+    _weekScrollController = ScrollController();
+    // Початкова прокрутка до поточного тижня
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToSelectedWeek();
+    });
 
     // Initialize animation controller for calendar toggle
     _animationController = AnimationController(
@@ -52,6 +60,7 @@ class _SchedulePageState extends State<SchedulePage>
   @override
   void dispose() {
     _animationController.dispose();
+    _weekScrollController.dispose();
     super.dispose();
   }
 
@@ -64,15 +73,70 @@ class _SchedulePageState extends State<SchedulePage>
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         final tasks = await _repository.getTasks(user.uid);
-
+        
         // Group tasks by date for more efficient lookup
         final Map<DateTime, List<TaskEntity>> tasksByDate = {};
+        
         for (var task in tasks) {
+          // Add original task
           final date = DateTime(task.date.year, task.date.month, task.date.day);
           if (tasksByDate[date] == null) {
             tasksByDate[date] = [];
           }
           tasksByDate[date]!.add(task);
+
+          // Handle repeating tasks
+          if (task.repeatOption != 'Never') {
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
+            DateTime nextDate = date;
+
+            // Generate next 30 occurrences for repeating tasks
+            for (int i = 0; i < 30; i++) {
+              switch (task.repeatOption) {
+                case 'Daily':
+                  nextDate = nextDate.add(const Duration(days: 1));
+                  break;
+                case 'Weekly':
+                  nextDate = nextDate.add(const Duration(days: 7));
+                  break;
+                case 'Monthly':
+                  nextDate = DateTime(
+                    nextDate.year,
+                    nextDate.month + 1,
+                    nextDate.day,
+                  );
+                  break;
+                default:
+                  continue;
+              }
+
+              // Only add future dates
+              if (!nextDate.isBefore(today)) {
+                final repeatedTask = TaskEntity(
+                  id: '${task.id}_${nextDate.toString()}',
+                  name: task.name,
+                  note: task.note,
+                  date: nextDate,
+                  startTime: task.startTime,
+                  endTime: task.endTime,
+                  category: task.category,
+                  remindMe: task.remindMe,
+                  reminderMinutes: task.reminderMinutes,
+                  repeatOption: task.repeatOption,
+                  userId: task.userId,
+                  isCompleted: false, // Reset completion status for repeated tasks
+                  createdAt: task.createdAt,
+                );
+
+                final nextDateKey = DateTime(nextDate.year, nextDate.month, nextDate.day);
+                if (tasksByDate[nextDateKey] == null) {
+                  tasksByDate[nextDateKey] = [];
+                }
+                tasksByDate[nextDateKey]!.add(repeatedTask);
+              }
+            }
+          }
         }
 
         setState(() {
@@ -108,7 +172,31 @@ class _SchedulePageState extends State<SchedulePage>
     setState(() {
       _selectedDate = selectedDay;
       _focusedDay = focusedDay;
+      _visibleMonth = focusedDay;
     });
+    _scrollToSelectedWeek();
+  }
+
+  void _scrollToSelectedWeek() {
+    if (!_isCalendarExpanded) {
+      final now = DateTime.now();
+      final thisWeekMonday = DateTime(now.year, now.month, now.day)
+          .subtract(Duration(days: now.weekday - 1));
+      final startDate = thisWeekMonday.subtract(const Duration(days: 7));
+      
+      final daysDifference = _selectedDate.difference(startDate).inDays;
+      final initialOffset = daysDifference * 68.0;
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_weekScrollController.hasClients) {
+          _weekScrollController.animateTo(
+            initialOffset,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
+        }
+      });
+    }
   }
 
   void _toggleCalendar() {
@@ -118,13 +206,32 @@ class _SchedulePageState extends State<SchedulePage>
         _animationController.forward();
       } else {
         _animationController.reverse();
+        _visibleMonth = _selectedDate;
+        _scrollToSelectedWeek();
       }
     });
   }
 
   void _deleteTask(String taskId) async {
     try {
-      await _repository.deleteTask(taskId);
+      final task = _currentDayTasks.firstWhere((t) => t.id == taskId);
+      final DateTime now = DateTime.now();
+      final DateTime today = DateTime(now.year, now.month, now.day);
+      
+      if (task.date.isBefore(today)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot delete past tasks'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Extract original task ID (remove date suffix if it's a repeated task)
+      final originalTaskId = taskId.contains('_') ? taskId.split('_')[0] : taskId;
+
+      await _repository.deleteTask(originalTaskId);
       _loadTasks();
 
       if (mounted) {
@@ -137,7 +244,6 @@ class _SchedulePageState extends State<SchedulePage>
               label: 'UNDO',
               textColor: Colors.white,
               onPressed: () {
-                // Ideally implement undo functionality here
                 _loadTasks();
               },
             ),
@@ -157,8 +263,88 @@ class _SchedulePageState extends State<SchedulePage>
     }
   }
 
+  void _showDeleteConfirmation(TaskEntity task) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            if (task.repeatOption != 'Never') ...[
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Delete this occurrence'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteTask(task.id);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text('Delete all occurrences'),
+                subtitle: Text('Will delete all ${task.repeatOption.toLowerCase()} repetitions'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteTask(task.id.split('_')[0]); // Delete original task
+                },
+              ),
+            ] else
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text('Delete task'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteTask(task.id);
+                },
+              ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.grey,
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _toggleTaskCompletion(TaskEntity task) async {
     try {
+      final DateTime now = DateTime.now();
+      final DateTime today = DateTime(now.year, now.month, now.day);
+      
+      if (task.date.isBefore(today)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot modify past tasks'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
       // Create a copy of the task with updated status
       final updatedTask = TaskEntity(
         id: task.id,
@@ -193,7 +379,7 @@ class _SchedulePageState extends State<SchedulePage>
 
   void _onBottomNavTap(int index) {
     if (index == _currentIndex) return;
-
+    
     switch (index) {
       case 0:
         Navigator.pushReplacement(
@@ -266,7 +452,7 @@ class _SchedulePageState extends State<SchedulePage>
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            DateFormat('MMMM y').format(_selectedDate),
+                            DateFormat('MMMM y').format(_visibleMonth),
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -310,6 +496,11 @@ class _SchedulePageState extends State<SchedulePage>
                                   selectedDayPredicate: (day) =>
                                       isSameDay(_selectedDate, day),
                                   onDaySelected: _onDaySelected,
+                                  onPageChanged: (focusedDay) {
+                                    setState(() {
+                                      _focusedDay = focusedDay;
+                                    });
+                                  },
                                   calendarFormat: CalendarFormat.month,
                                   eventLoader: (day) {
                                     final date =
@@ -346,7 +537,43 @@ class _SchedulePageState extends State<SchedulePage>
                                       shape: BoxShape.circle,
                                     ),
                                     markerSize: 6,
-                                    markersMaxCount: 3,
+                                    markersMaxCount: 1,
+                                  ),
+                                  calendarBuilders: CalendarBuilders(
+                                    markerBuilder: (context, date, events) {
+                                      if (events.isNotEmpty) {
+                                        final tasks = events as List<TaskEntity>;
+                                        final now = DateTime.now();
+                                        final today = DateTime(now.year, now.month, now.day);
+                                        final isPastDate = date.isBefore(today);
+                                        final hasUncompletedTasks = tasks.any((task) => !task.isCompleted);
+                                        
+                                        return Positioned(
+                                          bottom: 1,
+                                          child: Container(
+                                            width: 16,
+                                            height: 16,
+                                            decoration: BoxDecoration(
+                                              color: hasUncompletedTasks && isPastDate 
+                                                  ? Colors.red 
+                                                  : const Color(0xFF2F80ED).withOpacity(0.9),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                '${tasks.length}',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      return null;
+                                    },
                                   ),
                                 ),
                               )
@@ -374,17 +601,6 @@ class _SchedulePageState extends State<SchedulePage>
                       color: Color(0xFF333333),
                     ),
                   ),
-                  if (_isLoading)
-                    Container(
-                      width: 24,
-                      height: 24,
-                      padding: const EdgeInsets.all(4),
-                      child: const CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
-                      ),
-                    ),
                 ],
               ),
 
@@ -393,17 +609,34 @@ class _SchedulePageState extends State<SchedulePage>
               // Tasks list
               Expanded(
                 child: _isLoading
-                    ? _buildLoadingState()
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Loading tasks...',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
                     : _currentDayTasks.isEmpty
                         ? _buildEmptyState()
                         : ListView.builder(
                             physics: const BouncingScrollPhysics(),
-                            itemCount: _currentDayTasks.length,
-                            itemBuilder: (context, index) {
-                              final task = _currentDayTasks[index];
-                              return Padding(
+                  itemCount: _currentDayTasks.length,
+                  itemBuilder: (context, index) {
+                    final task = _currentDayTasks[index];
+                    return Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
-                                child: _TaskItem(
+                      child: _TaskItem(
                                   task: Task(
                                     title: task.name,
                                     time: '${task.startTime} - ${task.endTime}',
@@ -412,21 +645,21 @@ class _SchedulePageState extends State<SchedulePage>
                                     isDone: task.isCompleted,
                                   ),
                                   onToggle: () => _toggleTaskCompletion(task),
-                                  onDelete: () => _deleteTask(task.id),
-                                  onEdit: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => PostponeTaskPage(
-                                          taskTitle: task.name,
-                                        ),
-                                      ),
-                                    ).then((_) => _loadTasks());
-                                  },
-                                ),
-                              );
-                            },
-                          ),
+                                  onDelete: () => _showDeleteConfirmation(task),
+                        onEdit: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PostponeTaskPage(
+                                task: task,
+                              ),
+                            ),
+                          ).then((_) => _loadTasks());
+                        },
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -452,33 +685,6 @@ class _SchedulePageState extends State<SchedulePage>
     );
   }
 
-  Widget _buildLoadingState() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2F80ED)),
-              strokeWidth: 3,
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            "Loading your tasks...",
-            style: TextStyle(
-              fontSize: 16,
-              color: Color(0xFF7A7A7A),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildWeekDays() {
     final List<String> weekDays = [
       'Mon',
@@ -490,34 +696,37 @@ class _SchedulePageState extends State<SchedulePage>
       'Sun'
     ];
 
-    // Get Monday of the current week
-    final monday =
-        _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
+    // Get the start date for the calendar view
+    final now = DateTime.now();
+    final thisWeekMonday = DateTime(now.year, now.month, now.day)
+        .subtract(Duration(days: now.weekday - 1));
+    final startDate = thisWeekMonday.subtract(const Duration(days: 7));
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(7, (i) {
-          final date = monday.add(Duration(days: i));
+    return Container(
+      height: 100,
+      child: ListView.builder(
+        controller: _weekScrollController,
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: 28, // Show 4 weeks
+        itemBuilder: (context, index) {
+          final date = startDate.add(Duration(days: index));
           final isSelected = isSameDay(date, _selectedDate);
-          final hasTasks =
-              _tasksByDate[DateTime(date.year, date.month, date.day)]
-                      ?.isNotEmpty ??
-                  false;
-          final isToday = isSameDay(date, DateTime.now());
+          final tasks = _tasksByDate[DateTime(date.year, date.month, date.day)] ?? [];
+          final isPastDate = date.isBefore(DateTime(now.year, now.month, now.day));
+          final hasUncompletedTasks = tasks.any((task) => !task.isCompleted);
+          final isToday = isSameDay(date, now);
 
           return GestureDetector(
             onTap: () => _onDaySelected(date, date),
             child: Container(
+              width: 60,
               margin: const EdgeInsets.symmetric(horizontal: 4),
-              width: 50,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    weekDays[i],
+                    weekDays[date.weekday - 1],
                     style: TextStyle(
                       fontSize: 13,
                       color: isSelected
@@ -533,8 +742,8 @@ class _SchedulePageState extends State<SchedulePage>
                   const SizedBox(height: 8),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    width: 36,
-                    height: 36,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: isSelected
@@ -565,20 +774,32 @@ class _SchedulePageState extends State<SchedulePage>
                     ),
                   ),
                   const SizedBox(height: 4),
-                  if (hasTasks)
+                  if (tasks.isNotEmpty)
                     Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Color(0xFF2F80ED),
+                        color: hasUncompletedTasks && isPastDate 
+                            ? Colors.red 
+                            : const Color(0xFF2F80ED).withOpacity(0.9),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${tasks.length}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                 ],
               ),
             ),
           );
-        }),
+        },
       ),
     );
   }
@@ -644,24 +865,7 @@ class _SchedulePageState extends State<SchedulePage>
             ),
           ),
           const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const CreateTaskPage()),
-              ).then((_) => _loadTasks());
-            },
-            icon: const Icon(Icons.add),
-            label: const Text("Add Task"),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2F80ED),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
+          
         ],
       ),
     );
@@ -710,82 +914,86 @@ class _TaskItem extends StatelessWidget {
         );
       },
       child: Dismissible(
-        key: Key(task.title), // Ideally use a unique ID for each task
+        key: Key(task.title),
         direction: DismissDirection.endToStart,
-        background: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20),
-          decoration: BoxDecoration(
-            color: Colors.red.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.delete, color: Colors.red),
-        ),
         confirmDismiss: (direction) async {
-          if (direction == DismissDirection.endToStart) {
-            // Show bottom sheet with options
-            showModalBottomSheet(
-              context: context,
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              builder: (context) => Container(
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+          showModalBottomSheet(
+            context: context,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            builder: (context) => Container(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    ListTile(
-                      leading: const Icon(Icons.schedule, color: Colors.blue),
-                      title: const Text('Postpone'),
-                      onTap: () {
-                        Navigator.pop(context); // Close bottom sheet
-                        if (onEdit != null) {
-                          onEdit!(); // Call postpone function
-                        }
-                      },
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.delete, color: Colors.red),
-                      title: const Text('Delete',
-                          style: TextStyle(color: Colors.red)),
-                      onTap: () {
-                        Navigator.pop(context); // Close bottom sheet
-                        if (onDelete != null) {
-                          onDelete!(); // Call delete function
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.grey,
-                          ),
-                          child: const Text('Cancel'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.calendar_today, color: Color(0xFF2F80ED)),
+                    title: const Text('Postpone task'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      if (onEdit != null) onEdit!();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline, color: Colors.red),
+                    title: const Text('Delete task'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      if (onDelete != null) onDelete!();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.grey,
                         ),
+                        child: const Text('Cancel'),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            );
-            return false; // Don't automatically dismiss
-          }
+            ),
+          );
           return false;
         },
+        background: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Icon(Icons.calendar_today, color: Colors.grey[600]),
+              const SizedBox(width: 8),
+              Text(
+                'Swipe to manage',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+        ),
         child: Card(
           elevation: 1,
           shadowColor: Colors.black12,
@@ -794,7 +1002,7 @@ class _TaskItem extends StatelessWidget {
           ),
           child: Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
+              decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
@@ -808,9 +1016,9 @@ class _TaskItem extends StatelessWidget {
                 Container(
                   width: 40,
                   height: 40,
-                  decoration: BoxDecoration(
+                decoration: BoxDecoration(
                     color: task.color.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
                     _getCategoryIcon(task.category),
@@ -820,21 +1028,21 @@ class _TaskItem extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 // Task details
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        task.title,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            task.title,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
                           decoration:
                               task.isDone ? TextDecoration.lineThrough : null,
-                          color: task.isDone ? Colors.grey : Colors.black,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
+                              color: task.isDone ? Colors.grey : Colors.black,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
                       Row(
                         children: [
                           Icon(
@@ -875,41 +1083,41 @@ class _TaskItem extends StatelessWidget {
                             ),
                           ),
                         ],
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
                 // Completion toggle
-                GestureDetector(
-                  onTap: onToggle,
+                    GestureDetector(
+                      onTap: onToggle,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
                         color: task.isDone
                             ? const Color(0xFF2F80ED)
                             : Colors.grey[400]!,
-                        width: 2,
-                      ),
+                            width: 2,
+                          ),
                       color: task.isDone
                           ? const Color(0xFF2F80ED)
                           : Colors.transparent,
+                        ),
+                        child: task.isDone
+                            ? const Icon(
+                                Icons.check,
+                                size: 16,
+                                color: Colors.white,
+                              )
+                            : null,
+                      ),
                     ),
-                    child: task.isDone
-                        ? const Icon(
-                            Icons.check,
-                            size: 16,
-                            color: Colors.white,
-                          )
-                        : null,
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
         ),
       ),
     );

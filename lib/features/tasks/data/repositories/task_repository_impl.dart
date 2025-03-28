@@ -12,6 +12,13 @@ class TaskRepositoryImpl implements TaskRepository {
   @override
   Future<void> createTask(TaskEntity task) async {
     try {
+      final DateTime now = DateTime.now();
+      final DateTime today = DateTime(now.year, now.month, now.day);
+      
+      if (task.date.isBefore(today)) {
+        throw Exception('Cannot create task with past date');
+      }
+
       await _firestore.collection('tasks').doc(task.id).set({
         'id': task.id,
         'name': task.name,
@@ -69,6 +76,13 @@ class TaskRepositoryImpl implements TaskRepository {
   @override
   Future<void> updateTask(TaskEntity task) async {
     try {
+      final DateTime now = DateTime.now();
+      final DateTime today = DateTime(now.year, now.month, now.day);
+      
+      if (task.date.isBefore(today)) {
+        throw Exception('Cannot update task with past date');
+      }
+
       final taskModel = TaskModel(
         id: task.id,
         name: task.name,
