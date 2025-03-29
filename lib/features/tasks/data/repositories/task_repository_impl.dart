@@ -6,8 +6,9 @@ import '../models/task_model.dart';
 class TaskRepositoryImpl implements TaskRepository {
   final FirebaseFirestore _firestore;
 
-  TaskRepositoryImpl({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  TaskRepositoryImpl({
+    FirebaseFirestore? firestore,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance;
 
   @override
   Future<void> createTask(TaskEntity task) async {

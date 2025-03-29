@@ -8,6 +8,7 @@ class TaskEntity {
   final String category;
   final bool remindMe;
   final int reminderMinutes;
+  final DateTime? reminderDateTime;
   final String repeatOption;
   final String userId;
   final bool isCompleted;
@@ -23,9 +24,30 @@ class TaskEntity {
     required this.category,
     required this.remindMe,
     required this.reminderMinutes,
+    this.reminderDateTime,
     required this.repeatOption,
     required this.userId,
-    this.isCompleted = false,
+    required this.isCompleted,
     required this.createdAt,
   });
+
+  DateTime? calculateReminderDateTime() {
+    if (!remindMe) return null;
+    
+    try {
+      final [hours, minutes] = startTime.split(':').map(int.parse).toList();
+      final taskDateTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        hours,
+        minutes,
+      );
+      
+      return taskDateTime.subtract(Duration(minutes: reminderMinutes));
+    } catch (e) {
+      print('Помилка при розрахунку часу нагадування: $e');
+      return null;
+    }
+  }
 }

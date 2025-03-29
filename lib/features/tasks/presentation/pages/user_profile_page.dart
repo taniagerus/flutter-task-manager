@@ -8,6 +8,8 @@ import '../widgets/bottom_nav_bar.dart';
 import 'home_page.dart';
 import 'schedule_page.dart';
 import 'statistics_page.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:task_manager/services/notification_service.dart';
 
 class UserProfilePage extends StatefulWidget {
   const UserProfilePage({Key? key}) : super(key: key);
@@ -20,6 +22,29 @@ class _UserProfilePageState extends State<UserProfilePage> {
   int _currentIndex = 3;
   bool _notificationsEnabled = true;
   User? get currentUser => FirebaseAuth.instance.currentUser;
+  NotificationService? _notificationService;
+
+  @override
+  void initState() {
+    super.initState();
+    _initNotificationService();
+  }
+
+  Future<void> _initNotificationService() async {
+    try {
+      _notificationService = await NotificationService.getInstance();
+    } catch (e) {
+      print('Помилка при ініціалізації нотифікацій: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Помилка при налаштуванні нотифікацій'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   void _onBottomNavTap(int index) {
     if (index == _currentIndex) return;
@@ -50,10 +75,45 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
   }
 
-  void _toggleNotifications(bool value) {
-    setState(() {
-      _notificationsEnabled = value;
-    });
+  void _toggleNotifications(bool value) async {
+    try {
+      if (_notificationService == null) {
+        _notificationService = await NotificationService.getInstance();
+      }
+
+      if (value) {
+        // Запитуємо дозволи для нотифікацій
+        final granted = await _notificationService!.requestNotificationPermissions();
+        if (!granted) {
+          throw Exception('Дозвіл на нотифікації не надано');
+        }
+      } else {
+        // Скасовуємо всі нотифікації
+        await _notificationService!.cancelAllNotifications();
+      }
+
+      setState(() {
+        _notificationsEnabled = value;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(value ? 'Нотифікації увімкнено' : 'Нотифікації вимкнено'),
+            backgroundColor: value ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Помилка при зміні налаштувань нотифікацій: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override

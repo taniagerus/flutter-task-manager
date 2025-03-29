@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../pages/schedule_page.dart';
+import '../../../../services/notification_service.dart';
+import '../../domain/repositories/task_repository.dart';
+import '../../data/repositories/task_repository_impl.dart';
 
 class TaskDetailsPage extends StatefulWidget {
   final Task task;
@@ -22,13 +25,17 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   late String _selectedCategory;
   bool _remindMe = true;
   String _repeatOption = 'Weekly';
+  double _reminderTime = 30;
   
   final List<String> _categories = ['Personal', 'Health', 'Work'];
   final List<String> _repeatOptions = ['Daily', 'Weekly', 'Monthly', 'Never'];
+  NotificationService? _notificationService;
+  late final TaskRepository _repository;
 
   @override
   void initState() {
     super.initState();
+    _initServices();
     _nameController = TextEditingController(text: widget.task.title);
     _noteController = TextEditingController();
     _selectedDate = DateTime.now();
@@ -40,6 +47,27 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     
     _selectedTimeRange = TimeRange(startTime: startTime, endTime: endTime);
     _selectedCategory = widget.task.category;
+    
+    // Initialize reminder settings from task
+    _remindMe = widget.task.remindMe;
+    _reminderTime = widget.task.reminderMinutes.toDouble();
+  }
+
+  Future<void> _initServices() async {
+    try {
+      _notificationService = await NotificationService.getInstance();
+      _repository = TaskRepositoryImpl();
+    } catch (e) {
+      print('Помилка при ініціалізації сервісів: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Помилка при налаштуванні сервісів'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   TimeOfDay _parseTimeString(String timeStr) {
@@ -60,6 +88,64 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     _nameController.dispose();
     _noteController.dispose();
     super.dispose();
+  }
+
+  Future<void> _deleteTask() async {
+    try {
+      if (_notificationService == null) {
+        _notificationService = await NotificationService.getInstance();
+      }
+      
+      // Скасовуємо нотифікацію
+      try {
+        await _notificationService!.cancelNotification(widget.task.title.hashCode);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Помилка при скасуванні нагадування: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      
+      // Видаляємо завдання
+      await _repository.deleteTask(widget.task.title);
+      
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Завдання успішно видалено')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Помилка при видаленні завдання: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  bool _isValidReminderTime() {
+    final taskDateTime = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTimeRange.startTime.hour,
+      _selectedTimeRange.startTime.minute,
+    );
+
+    final reminderDateTime = taskDateTime.subtract(
+      Duration(minutes: _reminderTime.round()),
+    );
+
+    return reminderDateTime.isAfter(DateTime.now());
   }
 
   @override
@@ -272,15 +358,18 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
             const SizedBox(height: 4),
             
             Slider(
-              value: 30,
+              value: _reminderTime,
               min: 5,
               max: 60,
               divisions: 11,
               activeColor: Colors.blue,
               inactiveColor: Colors.blue.withOpacity(0.2),
-              onChanged: (value) {
-                // Handle slider change
-              },
+              label: '${_reminderTime.round()} minutes before',
+              onChanged: _remindMe ? (value) {
+                setState(() {
+                  _reminderTime = value;
+                });
+              } : null,
             ),
             const SizedBox(height: 16),
             
@@ -373,7 +462,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                               TextButton(
                                 onPressed: () {
                                   Navigator.pop(context); // Close dialog
-                                  Navigator.pop(context); // Close task details
+                                  _deleteTask(); // Delete task and notification
                                 },
                                 child: const Text(
                                   'Delete',

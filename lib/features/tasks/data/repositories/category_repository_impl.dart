@@ -81,6 +81,7 @@ class CategoryRepositoryImpl implements CategoryRepository {
     print('Конвертація іконки в назву: $icon');
     print('Унікальний код іконки: ${icon.codePoint}');
     
+    // Direct icon comparisons
     if (icon == Icons.school_outlined) return 'school_outlined';
     if (icon == Icons.groups_outlined) return 'groups_outlined';
     if (icon == Icons.home_outlined) return 'home_outlined';
@@ -95,6 +96,23 @@ class CategoryRepositoryImpl implements CategoryRepository {
     if (icon == Icons.card_giftcard_outlined) return 'card_giftcard_outlined';
     if (icon == Icons.person_outline) return 'person_outline';
     if (icon == Icons.work_outline) return 'work_outline';
+    if (icon == Icons.home_work) return 'home_work'; // Added for hmhmg category
+    if (icon == Icons.sentiment_satisfied) return 'sentiment_satisfied'; // Added for smile category
+    
+    // Non-outlined versions
+    if (icon == Icons.school) return 'school';
+    if (icon == Icons.groups) return 'groups';
+    if (icon == Icons.home) return 'home';
+    if (icon == Icons.favorite) return 'favorite';
+    if (icon == Icons.flight) return 'flight';
+    if (icon == Icons.edit) return 'edit';
+    if (icon == Icons.shopping_cart) return 'shopping_cart';
+    if (icon == Icons.fastfood) return 'fastfood';
+    if (icon == Icons.fitness_center) return 'fitness_center';
+    if (icon == Icons.directions_car) return 'directions_car';
+    if (icon == Icons.card_giftcard) return 'card_giftcard';
+    if (icon == Icons.person) return 'person';
+    if (icon == Icons.work) return 'work';
     
     // Перевіряємо код іконки для альтернативної ідентифікації
     switch (icon.codePoint) {
@@ -112,6 +130,22 @@ class CategoryRepositoryImpl implements CategoryRepository {
       case 0xe8f6: return 'card_giftcard_outlined'; // Icons.card_giftcard_outlined
       case 0xe7fd: return 'person_outline';       // Icons.person_outline
       case 0xe90a: return 'work_outline';         // Icons.work_outline
+      case 0xe31a: return 'home_work';            // Icons.home_work
+      case 0xe814: return 'sentiment_satisfied';  // Icons.sentiment_satisfied
+      
+      // Non-outlined versions by codePoint
+      case 0xe558: return 'school';               // Icons.school
+      case 0xe4ee: return 'groups';               // Icons.groups
+      case 0xe317: return 'home';                 // Icons.home
+      case 0xe25b: return 'favorite';             // Icons.favorite
+      case 0xe567: return 'edit';                 // Icons.edit
+      case 0xe8cb: return 'shopping_cart';        // Icons.shopping_cart
+      case 0xe259: return 'fastfood';             // Icons.fastfood
+      case 0xe26d: return 'fitness_center';       // Icons.fitness_center
+      case 0xe1d6: return 'directions_car';       // Icons.directions_car
+      case 0xe8f5: return 'card_giftcard';        // Icons.card_giftcard
+      case 0xe7fc: return 'person';               // Icons.person
+      case 0xe909: return 'work';                 // Icons.work
     }
     
     print('Невідома іконка, використовую значення за замовчуванням');

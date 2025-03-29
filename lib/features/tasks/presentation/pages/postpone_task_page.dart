@@ -19,6 +19,24 @@ class _PostponeTaskPageState extends State<PostponeTaskPage> {
   late TimeOfDay endTime;
   late String repeatOption;
   late TextEditingController titleController;
+  bool _remindMe = true;
+  double _reminderTime = 30;
+
+  bool _isValidReminderTime() {
+    final taskDateTime = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      startTime.hour,
+      startTime.minute,
+    );
+
+    final reminderDateTime = taskDateTime.subtract(
+      Duration(minutes: _reminderTime.round()),
+    );
+
+    return reminderDateTime.isAfter(DateTime.now());
+  }
 
   @override
   void initState() {
@@ -32,6 +50,8 @@ class _PostponeTaskPageState extends State<PostponeTaskPage> {
     );
     repeatOption = widget.task.repeatOption;
     titleController = TextEditingController(text: widget.task.name);
+    _remindMe = widget.task.remindMe;
+    _reminderTime = widget.task.reminderMinutes.toDouble();
   }
 
   @override
@@ -295,6 +315,45 @@ class _PostponeTaskPageState extends State<PostponeTaskPage> {
                 ],
               ),
             ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Remind me before task starts',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+                Switch(
+                  value: _remindMe,
+                  onChanged: (value) {
+                    setState(() {
+                      _remindMe = value;
+                    });
+                  },
+                  activeColor: const Color(0xFF2F80ED),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            
+            Slider(
+              value: _reminderTime,
+              min: 5,
+              max: 60,
+              divisions: 11,
+              activeColor: const Color(0xFF2F80ED),
+              inactiveColor: const Color(0xFF2F80ED).withOpacity(0.2),
+              label: '${_reminderTime.round()} minutes before',
+              onChanged: _remindMe ? (value) {
+                setState(() {
+                  _reminderTime = value;
+                });
+              } : null,
+            ),
           ],
         ),
       ),
@@ -321,6 +380,14 @@ class _PostponeTaskPageState extends State<PostponeTaskPage> {
               ),
             ),
             onPressed: () {
+              if (_remindMe && !_isValidReminderTime()) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Reminder time cannot be in the past'),
+                  ),
+                );
+                return;
+              }
               // TODO: Implement save logic
               Navigator.pop(context);
             },

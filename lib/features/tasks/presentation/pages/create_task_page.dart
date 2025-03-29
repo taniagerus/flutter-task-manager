@@ -7,6 +7,7 @@ import '../../domain/usecases/create_task_usecase.dart';
 import '../../data/repositories/task_repository_impl.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../data/repositories/category_repository_impl.dart';
+import '../../../../services/notification_service.dart';
 
 class CreateTaskPage extends StatefulWidget {
   const CreateTaskPage({Key? key}) : super(key: key);
@@ -17,6 +18,7 @@ class CreateTaskPage extends StatefulWidget {
 
 class _CreateTaskPageState extends State<CreateTaskPage> {
   late final CreateTaskUseCase _createTaskUseCase;
+  NotificationService? _notificationService;
   bool _isLoading = false;
   final _formKey = GlobalKey<FormState>();
 
@@ -46,6 +48,11 @@ class _CreateTaskPageState extends State<CreateTaskPage> {
     _createTaskUseCase = CreateTaskUseCase(TaskRepositoryImpl());
     _categoryRepository = CategoryRepositoryImpl();
     _loadCategories();
+    _initNotificationService();
+  }
+
+  Future<void> _initNotificationService() async {
+    _notificationService = await NotificationService.getInstance();
   }
 
   Future<void> _loadCategories() async {
@@ -95,6 +102,22 @@ class _CreateTaskPageState extends State<CreateTaskPage> {
       hexColor = 'FF$hexColor';
     }
     return Color(int.parse(hexColor, radix: 16));
+  }
+
+  bool _isValidReminderTime() {
+    final taskDateTime = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTimeRange.startTime.hour,
+      _selectedTimeRange.startTime.minute,
+    ).toUtc();
+
+    final reminderDateTime = taskDateTime.subtract(
+      Duration(minutes: _reminderTime.round()),
+    );
+
+    return reminderDateTime.isAfter(DateTime.now());
   }
 
   @override
@@ -465,52 +488,100 @@ class _CreateTaskPageState extends State<CreateTaskPage> {
   }
   
   Future<void> _createTask() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
-
-      try {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user == null) {
-          throw Exception('User not authenticated');
-        }
-
-        final task = TaskEntity(
-          id: const Uuid().v4(),
-          name: _nameController.text,
-          note: _noteController.text,
-          date: _selectedDate,
-          startTime: _selectedTimeRange.startTime.format(context),
-          endTime: _selectedTimeRange.endTime.format(context),
-          category: _selectedCategory,
-          remindMe: _remindMe,
-          reminderMinutes: _remindMe ? _reminderTime.round() : 0,
-          repeatOption: _repeatOption,
-          userId: user.uid,
-          createdAt: DateTime.now(),
+    if (!_formKey.currentState!.validate()) return;
+    
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      // Створення локального часу завдання
+      final taskLocalDateTime = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        _selectedTimeRange.startTime.hour,
+        _selectedTimeRange.startTime.minute,
+      );
+      
+      // Конвертація в UTC для збереження
+      final taskDateTimeUTC = taskLocalDateTime.toUtc();
+      
+      // Розрахунок часу нагадування в UTC
+      final reminderDateTimeUTC = _remindMe 
+          ? taskDateTimeUTC.subtract(Duration(minutes: _reminderTime.round()))
+          : null;
+      
+      final task = TaskEntity(
+        id: const Uuid().v4(),
+        name: _nameController.text,
+        note: _noteController.text,
+        date: taskDateTimeUTC,
+        startTime: '${_selectedTimeRange.startTime.hour.toString().padLeft(2, '0')}:${_selectedTimeRange.startTime.minute.toString().padLeft(2, '0')}',
+        endTime: '${_selectedTimeRange.endTime.hour.toString().padLeft(2, '0')}:${_selectedTimeRange.endTime.minute.toString().padLeft(2, '0')}',
+        category: _selectedCategory,
+        remindMe: _remindMe,
+        reminderMinutes: _reminderTime.round(),
+        reminderDateTime: reminderDateTimeUTC,
+        repeatOption: _repeatOption,
+        userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+        isCompleted: false,
+        createdAt: DateTime.now(),
+      );
+      
+      final result = await _createTaskUseCase(task);
+      
+      result.fold(
+        (failure) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(failure.message)),
+          );
+        },
+        (success) async {
+          // Перед плануванням сповіщення спочатку запитуємо дозволи
+          if (_remindMe && reminderDateTimeUTC != null) {
+            final hasPermission = await _notificationService?.requestNotificationPermissions() ?? false;
+            if (hasPermission) {
+              try {
+                await _notificationService?.showTaskNotification(
+                  task.name,
+                  'Завдання "${task.name}" починається через ${_reminderTime.round()} хвилин',
+                  reminderDateTimeUTC,
+                );
+                print('Сповіщення заплановано на: ${reminderDateTimeUTC}');
+              } catch (e) {
+                print('Помилка при плануванні нотифікації: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Помилка при плануванні нагадування: $e')),
+                  );
+                }
+              }
+            } else {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Не вдалося отримати дозвіл на сповіщення')),
+                );
+              }
+            }
+          }
+          
+          if (mounted) {
+            Navigator.pop(context);
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Помилка при створенні завдання: $e')),
         );
-
-        await _createTaskUseCase(task);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Task created successfully')),
-          );
-          Navigator.pop(context);
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to create task: $e')),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }

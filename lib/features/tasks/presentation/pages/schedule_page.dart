@@ -11,6 +11,7 @@ import 'statistics_page.dart';
 import 'user_profile_page.dart';
 import '../../domain/entities/task_entity.dart';
 import '../../data/repositories/task_repository_impl.dart';
+import '../../../../services/notification_service.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({Key? key}) : super(key: key);
@@ -35,6 +36,8 @@ class _SchedulePageState extends State<SchedulePage>
   // Map to store tasks by date for quick lookup
   Map<DateTime, List<TaskEntity>> _tasksByDate = {};
 
+  NotificationService? _notificationService;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +58,25 @@ class _SchedulePageState extends State<SchedulePage>
       parent: _animationController,
       curve: Curves.easeInOut,
     );
+
+    // Initialize notification service
+    _initNotificationService();
+  }
+
+  Future<void> _initNotificationService() async {
+    try {
+      _notificationService = await NotificationService.getInstance();
+    } catch (e) {
+      print('Помилка при ініціалізації нотифікацій: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Помилка при налаштуванні нотифікацій'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -141,6 +163,14 @@ class _SchedulePageState extends State<SchedulePage>
 
         setState(() {
           _tasksByDate = tasksByDate;
+          _selectedDate = DateTime.now();
+          _focusedDay = DateTime.now();
+          _visibleMonth = DateTime.now();
+        });
+
+        // Прокрутка до поточної дати після оновлення
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToSelectedWeek();
         });
       }
     } catch (e) {
@@ -212,51 +242,44 @@ class _SchedulePageState extends State<SchedulePage>
     });
   }
 
-  void _deleteTask(String taskId) async {
+  Future<void> _deleteTask(String taskId) async {
     try {
       final task = _currentDayTasks.firstWhere((t) => t.id == taskId);
-      final DateTime now = DateTime.now();
-      final DateTime today = DateTime(now.year, now.month, now.day);
       
-      if (task.date.isBefore(today)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cannot delete past tasks'),
-            backgroundColor: Colors.red,
-          ),
-        );
+      if (_notificationService == null) {
+        _notificationService = await NotificationService.getInstance();
+      }
+      
+      // Скасовуємо нотифікацію
+      try {
+        await _notificationService!.cancelNotification(task.name.hashCode);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Помилка при скасуванні нагадування: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         return;
       }
-
-      // Extract original task ID (remove date suffix if it's a repeated task)
-      final originalTaskId = taskId.contains('_') ? taskId.split('_')[0] : taskId;
-
-      await _repository.deleteTask(originalTaskId);
+      
+      // Видаляємо завдання
+      await _repository.deleteTask(taskId);
       _loadTasks();
-
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Task deleted successfully'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            action: SnackBarAction(
-              label: 'UNDO',
-              textColor: Colors.white,
-              onPressed: () {
-                _loadTasks();
-              },
-            ),
-          ),
+          const SnackBar(content: Text('Завдання успішно видалено')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error deleting task: $e'),
+            content: Text('Помилка при видаленні завдання: $e'),
             backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -635,17 +658,19 @@ class _SchedulePageState extends State<SchedulePage>
                   itemBuilder: (context, index) {
                     final task = _currentDayTasks[index];
                     return Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.only(bottom: 12),
                       child: _TaskItem(
-                                  task: Task(
-                                    title: task.name,
-                                    time: '${task.startTime} - ${task.endTime}',
-                                    category: task.category,
-                                    color: _getCategoryColor(task.category),
-                                    isDone: task.isCompleted,
-                                  ),
-                                  onToggle: () => _toggleTaskCompletion(task),
-                                  onDelete: () => _showDeleteConfirmation(task),
+                        task: Task(
+                          title: task.name,
+                          time: '${task.startTime} - ${task.endTime}',
+                          category: task.category,
+                          color: _getCategoryColor(task.category),
+                          isDone: task.isCompleted,
+                          remindMe: task.remindMe,
+                          reminderMinutes: task.reminderMinutes,
+                        ),
+                        onToggle: () => _toggleTaskCompletion(task),
+                        onDelete: () => _showDeleteConfirmation(task),
                         onEdit: () {
                           Navigator.push(
                             context,
@@ -701,6 +726,24 @@ class _SchedulePageState extends State<SchedulePage>
     final thisWeekMonday = DateTime(now.year, now.month, now.day)
         .subtract(Duration(days: now.weekday - 1));
     final startDate = thisWeekMonday.subtract(const Duration(days: 7));
+
+    // Add scroll listener to update visible month
+    if (!_weekScrollController.hasListeners) {
+      _weekScrollController.addListener(() {
+        if (_weekScrollController.hasClients) {
+          final scrollPosition = _weekScrollController.position.pixels;
+          final itemWidth = 68.0; // Width of each day item (60 + margins)
+          final visibleDayIndex = (scrollPosition / itemWidth).floor();
+          final visibleDate = startDate.add(Duration(days: visibleDayIndex));
+          
+          if (mounted && !isSameMonth(visibleDate, _visibleMonth)) {
+            setState(() {
+              _visibleMonth = visibleDate;
+            });
+          }
+        }
+      });
+    }
 
     return Container(
       height: 100,
@@ -808,6 +851,10 @@ class _SchedulePageState extends State<SchedulePage>
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
+  bool isSameMonth(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month;
+  }
+
   Color _getCategoryColor(String category) {
     switch (category.toLowerCase()) {
       case 'personal':
@@ -886,6 +933,7 @@ class _TaskItem extends StatelessWidget {
   });
 
   IconData _getCategoryIcon(String category) {
+    // First try to match by lowercase category name
     switch (category.toLowerCase()) {
       case 'personal':
         return Icons.person;
@@ -897,7 +945,39 @@ class _TaskItem extends StatelessWidget {
         return Icons.home_work;
       case 'smile':
         return Icons.sentiment_satisfied;
+      case 'education':
+        return Icons.school;
+      case 'shopping':
+        return Icons.shopping_cart;
+      case 'travel':
+        return Icons.flight;
+      case 'food':
+        return Icons.fastfood;
+      case 'fitness':
+        return Icons.fitness_center;
+      case 'transport':
+        return Icons.directions_car;
+      case 'gift':
+        return Icons.card_giftcard;
+      case 'home':
+        return Icons.home;
       default:
+        // If no match by name, try to match by icon name stored in the database
+        if (category.contains('home_work')) return Icons.home_work;
+        if (category.contains('sentiment_satisfied')) return Icons.sentiment_satisfied;
+        if (category.contains('person')) return Icons.person;
+        if (category.contains('favorite')) return Icons.favorite;
+        if (category.contains('work')) return Icons.work;
+        if (category.contains('school')) return Icons.school;
+        if (category.contains('shopping_cart')) return Icons.shopping_cart;
+        if (category.contains('flight')) return Icons.flight;
+        if (category.contains('fastfood')) return Icons.fastfood;
+        if (category.contains('fitness_center')) return Icons.fitness_center;
+        if (category.contains('directions_car')) return Icons.directions_car;
+        if (category.contains('card_giftcard')) return Icons.card_giftcard;
+        if (category.contains('home')) return Icons.home;
+        
+        // Default fallback
         return Icons.category;
     }
   }
@@ -1130,6 +1210,8 @@ class Task {
   final String category;
   final Color color;
   final bool isDone;
+  final bool remindMe;
+  final int reminderMinutes;
 
   const Task({
     required this.title,
@@ -1137,6 +1219,8 @@ class Task {
     required this.category,
     required this.color,
     required this.isDone,
+    this.remindMe = false,
+    this.reminderMinutes = 30,
   });
 
   Task copyWith({
@@ -1145,6 +1229,8 @@ class Task {
     String? category,
     Color? color,
     bool? isDone,
+    bool? remindMe,
+    int? reminderMinutes,
   }) {
     return Task(
       title: title ?? this.title,
@@ -1152,6 +1238,8 @@ class Task {
       category: category ?? this.category,
       color: color ?? this.color,
       isDone: isDone ?? this.isDone,
+      remindMe: remindMe ?? this.remindMe,
+      reminderMinutes: reminderMinutes ?? this.reminderMinutes,
     );
   }
 }

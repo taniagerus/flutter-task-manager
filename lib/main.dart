@@ -9,6 +9,7 @@ import 'package:task_manager/features/auth/domain/usecases/sign_in_with_google.d
 import 'package:task_manager/features/auth/data/repositories/auth_repository_impl.dart';
 import 'package:task_manager/features/auth/data/datasources/auth_remote_datasource.dart';
 import 'package:task_manager/features/auth/wrapper.dart';
+import 'services/notification_service.dart';
 
 // Змінна для швидкого перемикання між сторінками під час розробки
 const bool showHomePage = true; // змініть на false щоб побачити WelcomePage
@@ -16,7 +17,7 @@ const bool showHomePage = true; // змініть на false щоб побачи
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Додаємо опції для Android
+  // Ініціалізуємо Firebase
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: 'AIzaSyCjappXHCj9kZQ5bbAgR-ncZEDjFlx2TXg',
@@ -26,6 +27,13 @@ void main() async {
       storageBucket: 'flutter-task-6ae23.firebasestorage.app',
     ),
   );
+
+  try {
+    // Ініціалізуємо сервіс нотифікацій
+    await NotificationService.getInstance();
+  } catch (e) {
+    print('Помилка при ініціалізації нотифікацій: $e');
+  }
   
   runApp(const MyApp());
 }
