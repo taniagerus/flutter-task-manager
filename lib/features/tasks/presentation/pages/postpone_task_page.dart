@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../domain/entities/task_entity.dart';
+import '../../data/repositories/task_repository_impl.dart';
+import '../../../../services/notification_service.dart';
 
 class PostponeTaskPage extends StatefulWidget {
   final TaskEntity task;
@@ -62,6 +64,85 @@ class _PostponeTaskPageState extends State<PostponeTaskPage> {
 
   String _formatDate(DateTime date) {
     return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+  }
+
+  Future<void> _saveChanges() async {
+    try {
+      if (_remindMe && !_isValidReminderTime()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Час нагадування не може бути в минулому'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Створюємо оновлене завдання
+      final updatedTask = TaskEntity(
+        id: widget.task.id,
+        name: titleController.text,
+        note: widget.task.note,
+        date: selectedDate,
+        startTime: startTime.format(context).replaceAll(' ', ''),
+        endTime: endTime.format(context).replaceAll(' ', ''),
+        category: widget.task.category,
+        remindMe: _remindMe,
+        reminderMinutes: _reminderTime.round(),
+        repeatOption: repeatOption,
+        userId: widget.task.userId,
+        isCompleted: false,
+        createdAt: DateTime.now(),
+      );
+
+      // Оновлюємо завдання в базі даних
+      final repository = TaskRepositoryImpl();
+      await repository.updateTask(updatedTask);
+
+      // Оновлюємо нагадування
+      if (_remindMe) {
+        final notificationService = await NotificationService.getInstance();
+        
+        // Скасовуємо старе нагадування
+        await notificationService.cancelNotification(widget.task.name.hashCode);
+
+        // Встановлюємо нове нагадування
+        final taskDateTime = DateTime(
+          selectedDate.year,
+          selectedDate.month,
+          selectedDate.day,
+          startTime.hour,
+          startTime.minute,
+        );
+
+        final reminderDateTime = taskDateTime.subtract(
+          Duration(minutes: _reminderTime.round()),
+        );
+
+        await notificationService.showTaskNotification(
+          'Нагадування: ${updatedTask.name}',
+          'Завдання розпочнеться через ${_reminderTime.round()} хвилин',
+          reminderDateTime,
+        );
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Завдання успішно оновлено')),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      print('Помилка при збереженні змін: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Помилка при збереженні змін: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -379,18 +460,7 @@ class _PostponeTaskPageState extends State<PostponeTaskPage> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            onPressed: () {
-              if (_remindMe && !_isValidReminderTime()) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Reminder time cannot be in the past'),
-                  ),
-                );
-                return;
-              }
-              // TODO: Implement save logic
-              Navigator.pop(context);
-            },
+            onPressed: _saveChanges,
             child: const Text(
               'Save changes',
               style: TextStyle(

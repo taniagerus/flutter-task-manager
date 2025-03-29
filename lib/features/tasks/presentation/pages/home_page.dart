@@ -8,6 +8,9 @@ import 'statistics_page.dart';
 import 'user_profile_page.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../data/repositories/category_repository_impl.dart';
+import '../../domain/entities/task_entity.dart';
+import '../../data/repositories/task_repository_impl.dart';
+import 'package:intl/intl.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -20,21 +23,24 @@ class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   User? get currentUser => FirebaseAuth.instance.currentUser;
   final _categoryRepository = CategoryRepositoryImpl();
+  final _taskRepository = TaskRepositoryImpl();
   List<CategoryEntity> _userCategories = [];
+  TaskEntity? _upcomingTask;
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     print('HomePage: initState викликано');
-    // Listen to user changes
     FirebaseAuth.instance.userChanges().listen((User? user) {
       if (mounted) {
         setState(() {});
         _loadCategories();
+        _loadUpcomingTask();
       }
     });
     _loadCategories();
+    _loadUpcomingTask();
     _createDefaultCategories();
   }
 
@@ -113,6 +119,57 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       print('Помилка створення стандартних категорій: $e');
     }
+  }
+
+  Future<void> _loadUpcomingTask() async {
+    if (currentUser == null) return;
+
+    try {
+      // Отримуємо всі завдання користувача
+      final tasks = await _taskRepository.getTasks(currentUser!.uid);
+      
+      // Фільтруємо та сортуємо завдання
+      final now = DateTime.now();
+      final upcomingTasks = tasks.where((task) {
+        // Парсимо дату та час завдання
+        final taskDate = task.date;
+        final timeComponents = task.startTime.split(':');
+        final taskDateTime = DateTime(
+          taskDate.year,
+          taskDate.month,
+          taskDate.day,
+          int.parse(timeComponents[0]),
+          int.parse(timeComponents[1]),
+        );
+        
+        // Залишаємо тільки майбутні та незавершені завдання
+        return taskDateTime.isAfter(now) && !task.isCompleted;
+      }).toList();
+
+      // Сортуємо за часом початку
+      upcomingTasks.sort((a, b) {
+        final aTime = _parseDateTime(a.date, a.startTime);
+        final bTime = _parseDateTime(b.date, b.startTime);
+        return aTime.compareTo(bTime);
+      });
+
+      setState(() {
+        _upcomingTask = upcomingTasks.isNotEmpty ? upcomingTasks.first : null;
+      });
+    } catch (e) {
+      print('Помилка при завантаженні найближчого завдання: $e');
+    }
+  }
+
+  DateTime _parseDateTime(DateTime date, String timeString) {
+    final timeComponents = timeString.split(':');
+    return DateTime(
+      date.year,
+      date.month,
+      date.day,
+      int.parse(timeComponents[0]),
+      int.parse(timeComponents[1]),
+    );
   }
 
   void _onBottomNavTap(int index) {
@@ -297,34 +354,52 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ],
                 ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Upcoming task',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.black54,
+                child: _upcomingTask != null
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Upcoming task',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _upcomingTask!.name,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${_upcomingTask!.startTime}-${_upcomingTask!.endTime}',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            DateFormat('MMM dd, yyyy').format(_upcomingTask!.date),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ],
+                      )
+                    : const Center(
+                        child: Text(
+                          'No upcoming tasks',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.black54,
+                          ),
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Join the meeting',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      '11:00-12:00',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
               ),
               const SizedBox(height: 32),
               // Categories header

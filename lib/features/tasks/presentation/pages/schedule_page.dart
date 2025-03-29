@@ -87,108 +87,118 @@ class _SchedulePageState extends State<SchedulePage>
   }
 
   Future<void> _loadTasks() async {
+    if (FirebaseAuth.instance.currentUser == null) return;
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final tasks = await _repository.getTasks(user.uid);
+      final tasks = await _repository.getTasks(FirebaseAuth.instance.currentUser!.uid);
+      
+      // Сортуємо завдання за датою та часом
+      tasks.sort((a, b) {
+        // Спочатку порівнюємо дати
+        final dateComparison = a.date.compareTo(b.date);
+        if (dateComparison != 0) return dateComparison;
         
-        // Group tasks by date for more efficient lookup
-        final Map<DateTime, List<TaskEntity>> tasksByDate = {};
+        // Якщо дати однакові, порівнюємо час початку
+        final aStartComponents = a.startTime.split(':');
+        final bStartComponents = b.startTime.split(':');
         
-        for (var task in tasks) {
-          // Add original task
-          final date = DateTime(task.date.year, task.date.month, task.date.day);
-          if (tasksByDate[date] == null) {
-            tasksByDate[date] = [];
-          }
-          tasksByDate[date]!.add(task);
+        final aStartHour = int.parse(aStartComponents[0]);
+        final bStartHour = int.parse(bStartComponents[0]);
+        
+        if (aStartHour != bStartHour) return aStartHour.compareTo(bStartHour);
+        
+        final aStartMinute = int.parse(aStartComponents[1]);
+        final bStartMinute = int.parse(bStartComponents[1]);
+        
+        return aStartMinute.compareTo(bStartMinute);
+      });
 
-          // Handle repeating tasks
-          if (task.repeatOption != 'Never') {
-            final now = DateTime.now();
-            final today = DateTime(now.year, now.month, now.day);
-            DateTime nextDate = date;
+      // Group tasks by date for more efficient lookup
+      final Map<DateTime, List<TaskEntity>> tasksByDate = {};
+      
+      for (var task in tasks) {
+        // Add original task
+        final date = DateTime(task.date.year, task.date.month, task.date.day);
+        if (tasksByDate[date] == null) {
+          tasksByDate[date] = [];
+        }
+        tasksByDate[date]!.add(task);
 
-            // Generate next 30 occurrences for repeating tasks
-            for (int i = 0; i < 30; i++) {
-              switch (task.repeatOption) {
-                case 'Daily':
-                  nextDate = nextDate.add(const Duration(days: 1));
-                  break;
-                case 'Weekly':
-                  nextDate = nextDate.add(const Duration(days: 7));
-                  break;
-                case 'Monthly':
-                  nextDate = DateTime(
-                    nextDate.year,
-                    nextDate.month + 1,
-                    nextDate.day,
-                  );
-                  break;
-                default:
-                  continue;
-              }
+        // Handle repeating tasks
+        if (task.repeatOption != 'Never') {
+          final now = DateTime.now();
+          final today = DateTime(now.year, now.month, now.day);
+          DateTime nextDate = date;
 
-              // Only add future dates
-              if (!nextDate.isBefore(today)) {
-                final repeatedTask = TaskEntity(
-                  id: '${task.id}_${nextDate.toString()}',
-                  name: task.name,
-                  note: task.note,
-                  date: nextDate,
-                  startTime: task.startTime,
-                  endTime: task.endTime,
-                  category: task.category,
-                  remindMe: task.remindMe,
-                  reminderMinutes: task.reminderMinutes,
-                  repeatOption: task.repeatOption,
-                  userId: task.userId,
-                  isCompleted: false, // Reset completion status for repeated tasks
-                  createdAt: task.createdAt,
+          // Generate next 30 occurrences for repeating tasks
+          for (int i = 0; i < 30; i++) {
+            switch (task.repeatOption) {
+              case 'Daily':
+                nextDate = nextDate.add(const Duration(days: 1));
+                break;
+              case 'Weekly':
+                nextDate = nextDate.add(const Duration(days: 7));
+                break;
+              case 'Monthly':
+                nextDate = DateTime(
+                  nextDate.year,
+                  nextDate.month + 1,
+                  nextDate.day,
                 );
+                break;
+              default:
+                continue;
+            }
 
-                final nextDateKey = DateTime(nextDate.year, nextDate.month, nextDate.day);
-                if (tasksByDate[nextDateKey] == null) {
-                  tasksByDate[nextDateKey] = [];
-                }
-                tasksByDate[nextDateKey]!.add(repeatedTask);
+            // Only add future dates
+            if (!nextDate.isBefore(today)) {
+              final repeatedTask = TaskEntity(
+                id: '${task.id}_${nextDate.toString()}',
+                name: task.name,
+                note: task.note,
+                date: nextDate,
+                startTime: task.startTime,
+                endTime: task.endTime,
+                category: task.category,
+                remindMe: task.remindMe,
+                reminderMinutes: task.reminderMinutes,
+                repeatOption: task.repeatOption,
+                userId: task.userId,
+                isCompleted: false, // Reset completion status for repeated tasks
+                createdAt: task.createdAt,
+              );
+
+              final nextDateKey = DateTime(nextDate.year, nextDate.month, nextDate.day);
+              if (tasksByDate[nextDateKey] == null) {
+                tasksByDate[nextDateKey] = [];
               }
+              tasksByDate[nextDateKey]!.add(repeatedTask);
             }
           }
         }
-
-        setState(() {
-          _tasksByDate = tasksByDate;
-          _selectedDate = DateTime.now();
-          _focusedDay = DateTime.now();
-          _visibleMonth = DateTime.now();
-        });
-
-        // Прокрутка до поточної дати після оновлення
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToSelectedWeek();
-        });
       }
+
+      setState(() {
+        _tasksByDate = tasksByDate;
+        _selectedDate = DateTime.now();
+        _focusedDay = DateTime.now();
+        _visibleMonth = DateTime.now();
+        _isLoading = false;
+      });
+
+      // Прокрутка до поточної дати після оновлення
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToSelectedWeek();
+      });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading tasks: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      print('Помилка при завантаженні завдань: $e');
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -660,27 +670,10 @@ class _SchedulePageState extends State<SchedulePage>
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _TaskItem(
-                        task: Task(
-                          title: task.name,
-                          time: '${task.startTime} - ${task.endTime}',
-                          category: task.category,
-                          color: _getCategoryColor(task.category),
-                          isDone: task.isCompleted,
-                          remindMe: task.remindMe,
-                          reminderMinutes: task.reminderMinutes,
-                        ),
+                        task: task,
                         onToggle: () => _toggleTaskCompletion(task),
                         onDelete: () => _showDeleteConfirmation(task),
-                        onEdit: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => PostponeTaskPage(
-                                task: task,
-                              ),
-                            ),
-                          ).then((_) => _loadTasks());
-                        },
+                        onTaskUpdate: () => _loadTasks(),
                       ),
                     );
                   },
@@ -920,326 +913,259 @@ class _SchedulePageState extends State<SchedulePage>
 }
 
 class _TaskItem extends StatelessWidget {
-  final Task task;
+  final TaskEntity task;
   final VoidCallback onToggle;
   final VoidCallback? onDelete;
-  final VoidCallback? onEdit;
+  final VoidCallback onTaskUpdate;
 
   const _TaskItem({
     required this.task,
     required this.onToggle,
+    required this.onTaskUpdate,
     this.onDelete,
-    this.onEdit,
   });
 
-  IconData _getCategoryIcon(String category) {
-    // First try to match by lowercase category name
+  Color _getCategoryColor(String category) {
     switch (category.toLowerCase()) {
       case 'personal':
-        return Icons.person;
+        return const Color(0xFF98E7EF);
       case 'health':
-        return Icons.favorite;
+        return const Color(0xFFFFCCCC);
       case 'work':
-        return Icons.work;
+        return const Color(0xFFFDEAAC);
       case 'hmhmg':
-        return Icons.home_work;
+        return const Color(0xFFD4A5FF);
       case 'smile':
-        return Icons.sentiment_satisfied;
-      case 'education':
-        return Icons.school;
-      case 'shopping':
-        return Icons.shopping_cart;
-      case 'travel':
-        return Icons.flight;
-      case 'food':
-        return Icons.fastfood;
-      case 'fitness':
-        return Icons.fitness_center;
-      case 'transport':
-        return Icons.directions_car;
-      case 'gift':
-        return Icons.card_giftcard;
-      case 'home':
-        return Icons.home;
+        return const Color(0xFFA5FFB8);
       default:
-        // If no match by name, try to match by icon name stored in the database
-        if (category.contains('home_work')) return Icons.home_work;
-        if (category.contains('sentiment_satisfied')) return Icons.sentiment_satisfied;
-        if (category.contains('person')) return Icons.person;
-        if (category.contains('favorite')) return Icons.favorite;
-        if (category.contains('work')) return Icons.work;
-        if (category.contains('school')) return Icons.school;
-        if (category.contains('shopping_cart')) return Icons.shopping_cart;
-        if (category.contains('flight')) return Icons.flight;
-        if (category.contains('fastfood')) return Icons.fastfood;
-        if (category.contains('fitness_center')) return Icons.fitness_center;
-        if (category.contains('directions_car')) return Icons.directions_car;
-        if (category.contains('card_giftcard')) return Icons.card_giftcard;
-        if (category.contains('home')) return Icons.home;
-        
-        // Default fallback
-        return Icons.category;
+        return const Color(0xFFE0E0E0);
     }
+  }
+
+  bool _isOverdue() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final taskDate = DateTime(task.date.year, task.date.month, task.date.day);
+    
+    // Якщо завдання на сьогодні, перевіряємо час закінчення
+    if (taskDate.isAtSameMomentAs(today)) {
+      final [endHour, endMinute] = task.endTime.split(':').map(int.parse).toList();
+      final taskEndTime = DateTime(
+        taskDate.year,
+        taskDate.month,
+        taskDate.day,
+        endHour,
+        endMinute,
+      );
+      return !task.isCompleted && now.isAfter(taskEndTime);
+    }
+    
+    // Якщо завдання на інший день
+    return !task.isCompleted && taskDate.isBefore(today);
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => TaskDetailsPage(task: task),
+    final isOverdue = _isOverdue();
+    
+    return Dismissible(
+      key: Key(task.id),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (direction) async {
+        // Показуємо меню з опціями
+        return await showModalBottomSheet<bool>(
+          context: context,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
-        );
-      },
-      child: Dismissible(
-        key: Key(task.title),
-        direction: DismissDirection.endToStart,
-        confirmDismiss: (direction) async {
-          showModalBottomSheet(
-            context: context,
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-            ),
-            builder: (context) => Container(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.calendar_today, color: Color(0xFF2F80ED)),
-                    title: const Text('Postpone task'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      if (onEdit != null) onEdit!();
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.delete_outline, color: Colors.red),
-                    title: const Text('Delete task'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      if (onDelete != null) onDelete!();
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.grey,
-                        ),
-                        child: const Text('Cancel'),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-          return false;
-        },
-        background: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Icon(Icons.calendar_today, color: Colors.grey[600]),
-              const SizedBox(width: 8),
-              Text(
-                'Swipe to manage',
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-          ),
-        ),
-        child: Card(
-          elevation: 1,
-          shadowColor: Colors.black12,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: task.color.withOpacity(0.5),
-                width: 1,
-              ),
-            ),
-            child: Row(
+          builder: (context) => Container(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Category color indicator and icon
                 Container(
                   width: 40,
-                  height: 40,
-                decoration: BoxDecoration(
-                    color: task.color.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    _getCategoryIcon(task.category),
-                    color: task.color,
-                    size: 20,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(width: 12),
-                // Task details
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            task.title,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                          decoration:
-                              task.isDone ? TextDecoration.lineThrough : null,
-                              color: task.isDone ? Colors.grey : Colors.black,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.access_time,
-                            size: 14,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            task.time,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[600],
-                              decoration: task.isDone
-                                  ? TextDecoration.lineThrough
-                                  : null,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: task.color.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              task.category,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: task.isDone
-                                    ? Colors.grey
-                                    : task.color.withOpacity(0.8),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ],
-                          ),
-                        ],
+                ListTile(
+                  leading: const Icon(Icons.update, color: Color(0xFF2F80ED)),
+                  title: const Text('Postpone task'),
+                  onTap: () async {
+                    Navigator.pop(context, false); // Закриваємо меню
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => PostponeTaskPage(task: task),
+                      ),
+                    );
+                    // Оновлюємо список після повернення, якщо були зміни
+                    if (result == true) {
+                      onTaskUpdate();
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('Delete task'),
+                  onTap: () {
+                    Navigator.pop(context, false);
+                    onDelete?.call();
+                  },
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.grey,
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ) ?? false;
+      },
+      background: Container(
+        decoration: BoxDecoration(
+          color: Colors.red.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: const Icon(
+          Icons.more_horiz,
+          color: Colors.red,
+        ),
+      ),
+      child: InkWell(
+        onTap: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TaskDetailsPage(task: task),
+            ),
+          );
+          // Оновлюємо список після повернення, якщо були зміни
+          if (result == true) {
+            onTaskUpdate();
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.1),
+                spreadRadius: 1,
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+            border: isOverdue ? Border.all(color: Colors.red.withOpacity(0.5), width: 1) : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 4,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: _getCategoryColor(task.category),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      task.name,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                        color: task.isCompleted 
+                            ? Colors.grey 
+                            : (isOverdue ? Colors.red.withOpacity(0.8) : Colors.black),
                       ),
                     ),
-                // Completion toggle
-                    GestureDetector(
-                      onTap: onToggle,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                        color: task.isDone
-                            ? const Color(0xFF2F80ED)
-                            : Colors.grey[400]!,
-                            width: 2,
-                          ),
-                      color: task.isDone
-                          ? const Color(0xFF2F80ED)
-                          : Colors.transparent,
+                    const SizedBox(width: 4),
+                    Text(
+                      '${task.startTime} - ${task.endTime}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                        decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    if (task.category.isNotEmpty)
+                      Container(
+                        margin: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
                         ),
-                        child: task.isDone
-                            ? const Icon(
-                                Icons.check,
-                                size: 16,
-                                color: Colors.white,
-                              )
-                            : null,
+                        decoration: BoxDecoration(
+                          color: _getCategoryColor(task.category).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          task.category,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: task.isCompleted
+                                ? Colors.grey
+                                : _getCategoryColor(task.category).withOpacity(0.8),
+                          ),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
+              if (!isOverdue)
+                GestureDetector(
+                  onTap: onToggle,
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: task.isCompleted
+                            ? const Color(0xFF2F80ED)
+                            : Colors.grey[400]!,
+                        width: 2,
+                      ),
+                      color: task.isCompleted
+                          ? const Color(0xFF2F80ED)
+                          : Colors.transparent,
+                    ),
+                    child: task.isCompleted
+                        ? const Icon(
+                            Icons.check,
+                            size: 16,
+                            color: Colors.white,
+                          )
+                        : null,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-    );
-  }
-}
-
-class Task {
-  final String title;
-  final String time;
-  final String category;
-  final Color color;
-  final bool isDone;
-  final bool remindMe;
-  final int reminderMinutes;
-
-  const Task({
-    required this.title,
-    required this.time,
-    required this.category,
-    required this.color,
-    required this.isDone,
-    this.remindMe = false,
-    this.reminderMinutes = 30,
-  });
-
-  Task copyWith({
-    String? title,
-    String? time,
-    String? category,
-    Color? color,
-    bool? isDone,
-    bool? remindMe,
-    int? reminderMinutes,
-  }) {
-    return Task(
-      title: title ?? this.title,
-      time: time ?? this.time,
-      category: category ?? this.category,
-      color: color ?? this.color,
-      isDone: isDone ?? this.isDone,
-      remindMe: remindMe ?? this.remindMe,
-      reminderMinutes: reminderMinutes ?? this.reminderMinutes,
     );
   }
 }

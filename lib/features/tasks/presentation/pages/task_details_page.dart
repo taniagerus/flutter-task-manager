@@ -4,9 +4,14 @@ import '../pages/schedule_page.dart';
 import '../../../../services/notification_service.dart';
 import '../../domain/repositories/task_repository.dart';
 import '../../data/repositories/task_repository_impl.dart';
+import '../../domain/entities/task_entity.dart';
+import '../../domain/repositories/category_repository.dart';
+import '../../data/repositories/category_repository_impl.dart';
+import '../../domain/entities/category_entity.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class TaskDetailsPage extends StatefulWidget {
-  final Task task;
+  final TaskEntity task;
 
   const TaskDetailsPage({
     Key? key,
@@ -27,23 +32,25 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   String _repeatOption = 'Weekly';
   double _reminderTime = 30;
   
-  final List<String> _categories = ['Personal', 'Health', 'Work'];
+  List<String> _categories = [];
+  final List<String> _defaultCategories = ['Personal', 'Health', 'Work'];
   final List<String> _repeatOptions = ['Daily', 'Weekly', 'Monthly', 'Never'];
   NotificationService? _notificationService;
   late final TaskRepository _repository;
+  late final CategoryRepository _categoryRepository;
+  List<CategoryEntity> _categoriesFromDb = [];
 
   @override
   void initState() {
     super.initState();
     _initServices();
-    _nameController = TextEditingController(text: widget.task.title);
-    _noteController = TextEditingController();
-    _selectedDate = DateTime.now();
+    _nameController = TextEditingController(text: widget.task.name);
+    _noteController = TextEditingController(text: widget.task.note);
+    _selectedDate = widget.task.date;
     
-    // Parse the time string to get start and end times
-    final timeParts = widget.task.time.split(' - ');
-    final startTime = _parseTimeString(timeParts[0]);
-    final endTime = _parseTimeString(timeParts[1]);
+    // Парсимо час початку та кінця
+    final startTime = _parseTimeString(widget.task.startTime);
+    final endTime = _parseTimeString(widget.task.endTime);
     
     _selectedTimeRange = TimeRange(startTime: startTime, endTime: endTime);
     _selectedCategory = widget.task.category;
@@ -51,12 +58,17 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     // Initialize reminder settings from task
     _remindMe = widget.task.remindMe;
     _reminderTime = widget.task.reminderMinutes.toDouble();
+    _repeatOption = widget.task.repeatOption;
+
+    // Завантажуємо категорії
+    _loadCategories();
   }
 
   Future<void> _initServices() async {
     try {
       _notificationService = await NotificationService.getInstance();
       _repository = TaskRepositoryImpl();
+      _categoryRepository = CategoryRepositoryImpl();
     } catch (e) {
       print('Помилка при ініціалізації сервісів: $e');
       if (mounted) {
@@ -70,16 +82,64 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     }
   }
 
+  Future<void> _loadCategories() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() {
+          _categories = _defaultCategories;
+        });
+        return;
+      }
+
+      final customCategories = await _categoryRepository.getCategories(user.uid);
+      _categoriesFromDb = customCategories;
+      
+      // Створюємо список усіх категорій
+      List<String> allCategories = List.from(_defaultCategories);
+      
+      // Додаємо користувацькі категорії
+      for (var category in customCategories) {
+        if (!allCategories.contains(category.name)) {
+          allCategories.add(category.name);
+        }
+      }
+      
+      // Додаємо поточну категорію завдання, якщо її немає в списку
+      if (!allCategories.contains(widget.task.category)) {
+        allCategories.add(widget.task.category);
+      }
+      
+      setState(() {
+        _categories = allCategories;
+      });
+    } catch (e) {
+      print('Помилка при завантаженні категорій: $e');
+      // У випадку помилки показуємо хоча б стандартні категорії та поточну категорію завдання
+      setState(() {
+        final uniqueCategories = <String>{..._defaultCategories};
+        if (!uniqueCategories.contains(widget.task.category)) {
+          uniqueCategories.add(widget.task.category);
+        }
+        _categories = uniqueCategories.toList();
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Помилка при завантаженні категорій'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   TimeOfDay _parseTimeString(String timeStr) {
-    // Simple parsing for "11:00 am" format
+    // Parse "HH:mm" format
     final parts = timeStr.split(':');
-    int hour = int.parse(parts[0]);
-    int minute = int.parse(parts[1].split(' ')[0]);
-    final isPM = parts[1].contains('pm');
-    
-    if (isPM && hour < 12) hour += 12;
-    if (!isPM && hour == 12) hour = 0;
-    
+    final hour = int.parse(parts[0]);
+    final minute = int.parse(parts[1]);
     return TimeOfDay(hour: hour, minute: minute);
   }
 
@@ -98,7 +158,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       
       // Скасовуємо нотифікацію
       try {
-        await _notificationService!.cancelNotification(widget.task.title.hashCode);
+        await _notificationService!.cancelNotification(widget.task.name.hashCode);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -112,10 +172,10 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       }
       
       // Видаляємо завдання
-      await _repository.deleteTask(widget.task.title);
+      await _repository.deleteTask(widget.task.name);
       
       if (mounted) {
-        Navigator.pop(context);
+        Navigator.pop(context, true); // Повертаємо true при видаленні
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Завдання успішно видалено')),
         );
@@ -146,6 +206,88 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     );
 
     return reminderDateTime.isAfter(DateTime.now());
+  }
+
+  Future<void> _saveChanges() async {
+    try {
+      if (_notificationService == null) {
+        _notificationService = await NotificationService.getInstance();
+      }
+
+      // Створюємо оновлене завдання
+      final updatedTask = TaskEntity(
+        id: widget.task.id,
+        name: _nameController.text,
+        note: _noteController.text,
+        date: _selectedDate,
+        startTime: _selectedTimeRange.startTime.format(context).replaceAll(' ', ''),
+        endTime: _selectedTimeRange.endTime.format(context).replaceAll(' ', ''),
+        category: _selectedCategory,
+        remindMe: _remindMe,
+        reminderMinutes: _reminderTime.round(),
+        repeatOption: _repeatOption,
+        userId: widget.task.userId,
+        isCompleted: widget.task.isCompleted,
+        createdAt: widget.task.createdAt,
+      );
+
+      // Якщо нагадування увімкнено, перевіряємо час
+      if (_remindMe && !_isValidReminderTime()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Час нагадування не може бути в минулому'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Скасовуємо старе нагадування
+      if (widget.task.remindMe) {
+        await _notificationService!.cancelNotification(widget.task.name.hashCode);
+      }
+
+      // Оновлюємо завдання в базі даних
+      await _repository.updateTask(updatedTask);
+
+      // Встановлюємо нове нагадування, якщо потрібно
+      if (_remindMe) {
+        final taskDateTime = DateTime(
+          _selectedDate.year,
+          _selectedDate.month,
+          _selectedDate.day,
+          _selectedTimeRange.startTime.hour,
+          _selectedTimeRange.startTime.minute,
+        );
+
+        final reminderDateTime = taskDateTime.subtract(
+          Duration(minutes: _reminderTime.round()),
+        );
+
+        await _notificationService!.showTaskNotification(
+          'Нагадування: ${updatedTask.name}',
+          'Завдання розпочнеться через ${_reminderTime.round()} хвилин',
+          reminderDateTime,
+        );
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Зміни успішно збережено')),
+        );
+        Navigator.pop(context, true); // Повертаємо true при збереженні змін
+      }
+    } catch (e) {
+      print('Помилка при збереженні змін: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Помилка при збереженні змін: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -424,9 +566,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                   child: SizedBox(
                     height: 48,
                     child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
+                      onPressed: _saveChanges,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
                         shape: RoundedRectangleBorder(
@@ -535,16 +675,30 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   }
   
   Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'Personal':
-        return const Color(0xFF2F80ED); // Blue
-      case 'Health':
-        return const Color(0xFFFF9B9B); // Pink/Red
-      case 'Work':
-        return const Color(0xFFFFB156); // Orange
-      default:
-        return Colors.blue;
+    for (var dbCategory in _categoriesFromDb) {
+      if (dbCategory.name == category) {
+        return _getColorFromHex(dbCategory.colour);
+      }
     }
+    
+    switch (category.toLowerCase()) {
+      case 'personal':
+        return const Color(0xFF98E7EF);
+      case 'health':
+        return const Color(0xFFFFCCCC);
+      case 'work':
+        return const Color(0xFFFDEAAC);
+      default:
+        return const Color(0xFFE0E0E0);
+    }
+  }
+
+  Color _getColorFromHex(String hexColor) {
+    hexColor = hexColor.replaceAll('#', '');
+    if (hexColor.length == 6) {
+      hexColor = 'FF$hexColor';
+    }
+    return Color(int.parse(hexColor, radix: 16));
   }
 }
 

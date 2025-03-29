@@ -43,7 +43,7 @@ class NotificationService {
       print('Системна часова зона: $locationName');
       
       // Ініціалізуємо налаштування для Android
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const androidSettings = AndroidInitializationSettings('ic_notification');
       
       // Ініціалізуємо налаштування для iOS
       const iosSettings = DarwinInitializationSettings(
@@ -127,8 +127,8 @@ class NotificationService {
         vibrationPattern: _vibrationPattern,
         
         // Налаштування іконки
-        icon: '@drawable/app_logo',
-        largeIcon: DrawableResourceAndroidBitmap('@drawable/app_logo'),
+        icon: 'ic_notification',
+        largeIcon: const DrawableResourceAndroidBitmap('ic_notification'),
         
         // Стиль нотифікації
         styleInformation: BigTextStyleInformation(
@@ -155,7 +155,7 @@ class NotificationService {
         presentSound: true,
       );
       
-      const notificationDetails = NotificationDetails(
+      final notificationDetails = NotificationDetails(
         android: androidDetails,
         iOS: iosDetails,
       );
@@ -222,21 +222,6 @@ class NotificationService {
           granted = false;
         } else {
           print('Дозвіл для Android надано');
-        }
-      }
-
-      if (iosImplementation != null) {
-        print('Запит дозволів для iOS...');
-        final iosGranted = await iosImplementation.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-        if (iosGranted != true) {
-          print('Дозвіл для iOS не надано');
-          granted = false;
-        } else {
-          print('Дозвіл для iOS надано');
         }
       }
 
