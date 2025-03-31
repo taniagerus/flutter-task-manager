@@ -12,6 +12,7 @@ import 'user_profile_page.dart';
 import '../../domain/entities/task_entity.dart';
 import '../../data/repositories/task_repository_impl.dart';
 import '../../../../services/notification_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({Key? key}) : super(key: key);
@@ -155,12 +156,24 @@ class _SchedulePageState extends State<SchedulePage>
             }
 
             // Only add future dates
-            if (!nextDate.isBefore(today)) {
+            if (nextDate.isAfter(today) || isSameDay(nextDate, today)) {
+              final futureDate = DateTime(nextDate.year, nextDate.month, nextDate.day);
+              if (tasksByDate[futureDate] == null) {
+                tasksByDate[futureDate] = [];
+              }
+              
+              // Створюємо копію завдання з новою датою
               final repeatedTask = TaskEntity(
-                id: '${task.id}_${nextDate.toString()}',
+                id: '${task.id}_${DateFormat('yyyyMMdd').format(futureDate)}',
                 name: task.name,
-                note: task.note,
-                date: nextDate,
+                note: task.note, 
+                date: DateTime(
+                  futureDate.year,
+                  futureDate.month,
+                  futureDate.day,
+                  task.date.hour,
+                  task.date.minute,
+                ),
                 startTime: task.startTime,
                 endTime: task.endTime,
                 category: task.category,
@@ -168,32 +181,45 @@ class _SchedulePageState extends State<SchedulePage>
                 reminderMinutes: task.reminderMinutes,
                 repeatOption: task.repeatOption,
                 userId: task.userId,
-                isCompleted: false, // Reset completion status for repeated tasks
+                isCompleted: false,
                 createdAt: task.createdAt,
               );
-
-              final nextDateKey = DateTime(nextDate.year, nextDate.month, nextDate.day);
-              if (tasksByDate[nextDateKey] == null) {
-                tasksByDate[nextDateKey] = [];
-              }
-              tasksByDate[nextDateKey]!.add(repeatedTask);
+              
+              tasksByDate[futureDate]!.add(repeatedTask);
             }
           }
         }
       }
+      
+      // Сортуємо завдання для поточного дня окремо
+      final selectedDateKey = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+      final todayTasks = tasksByDate[selectedDateKey] ?? [];
+      
+      // Сортуємо за часом початку (від найраніших до найпізніших)
+      todayTasks.sort((a, b) {
+        final aStartComponents = a.startTime.split(':');
+        final bStartComponents = b.startTime.split(':');
+        
+        final aStartHour = int.parse(aStartComponents[0]);
+        final bStartHour = int.parse(bStartComponents[0]);
+        
+        if (aStartHour != bStartHour) return aStartHour.compareTo(bStartHour);
+        
+        final aStartMinute = int.parse(aStartComponents[1]);
+        final bStartMinute = int.parse(bStartComponents[1]);
+        
+        return aStartMinute.compareTo(bStartMinute);
+      });
 
+      // Оновлюємо мапу завдань, що автоматично оновить геттер _currentDayTasks
       setState(() {
         _tasksByDate = tasksByDate;
-        _selectedDate = DateTime.now();
-        _focusedDay = DateTime.now();
-        _visibleMonth = DateTime.now();
         _isLoading = false;
       });
-
-      // Прокрутка до поточної дати після оновлення
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToSelectedWeek();
-      });
+      
+      print('Завантажено ${tasks.length} завдань');
+      print('Завдань на ${DateFormat('yyyy-MM-dd').format(_selectedDate)}: ${_currentDayTasks.length}');
+      
     } catch (e) {
       print('Помилка при завантаженні завдань: $e');
       setState(() {
@@ -205,7 +231,28 @@ class _SchedulePageState extends State<SchedulePage>
   List<TaskEntity> get _currentDayTasks {
     final selectedDateKey =
         DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-    return _tasksByDate[selectedDateKey] ?? [];
+    
+    final tasks = _tasksByDate[selectedDateKey] ?? [];
+    
+    // Додатково сортуємо при кожному зверненні до геттера, щоб гарантувати правильний порядок
+    if (tasks.isNotEmpty) {
+      tasks.sort((a, b) {
+        final aStartComponents = a.startTime.split(':');
+        final bStartComponents = b.startTime.split(':');
+        
+        final aStartHour = int.parse(aStartComponents[0]);
+        final bStartHour = int.parse(bStartComponents[0]);
+        
+        if (aStartHour != bStartHour) return aStartHour.compareTo(bStartHour);
+        
+        final aStartMinute = int.parse(aStartComponents[1]);
+        final bStartMinute = int.parse(bStartComponents[1]);
+        
+        return aStartMinute.compareTo(bStartMinute);
+      });
+    }
+    
+    return tasks;
   }
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
@@ -214,6 +261,34 @@ class _SchedulePageState extends State<SchedulePage>
       _focusedDay = focusedDay;
       _visibleMonth = focusedDay;
     });
+    
+    // Перезавантажуємо завдання для обраного дня
+    final selectedDateKey = DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
+    
+    // Сортуємо за часом початку (від найраніших до найпізніших)
+    final dayTasks = _tasksByDate[selectedDateKey] ?? [];
+    if (dayTasks.isNotEmpty) {
+      dayTasks.sort((a, b) {
+        final aStartComponents = a.startTime.split(':');
+        final bStartComponents = b.startTime.split(':');
+        
+        final aStartHour = int.parse(aStartComponents[0]);
+        final bStartHour = int.parse(bStartComponents[0]);
+        
+        if (aStartHour != bStartHour) return aStartHour.compareTo(bStartHour);
+        
+        final aStartMinute = int.parse(aStartComponents[1]);
+        final bStartMinute = int.parse(bStartComponents[1]);
+        
+        return aStartMinute.compareTo(bStartMinute);
+      });
+      
+      // Оновлюємо мапу завдань, щоб геттер _currentDayTasks повертав відсортований список
+      setState(() {
+        _tasksByDate[selectedDateKey] = dayTasks;
+      });
+    }
+    
     _scrollToSelectedWeek();
   }
 
@@ -368,16 +443,6 @@ class _SchedulePageState extends State<SchedulePage>
       final DateTime now = DateTime.now();
       final DateTime today = DateTime(now.year, now.month, now.day);
       
-      if (task.date.isBefore(today)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cannot modify past tasks'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
       // Create a copy of the task with updated status
       final updatedTask = TaskEntity(
         id: task.id,
@@ -396,7 +461,22 @@ class _SchedulePageState extends State<SchedulePage>
       );
 
       await _repository.updateTask(updatedTask);
-      _loadTasks();
+      
+      // Use _refreshTasksAfterUpdate instead of _loadTasks to ensure proper UI refresh
+      // and to update statistics
+      _refreshTasksAfterUpdate();
+      
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(updatedTask.isCompleted ? 'Task marked as completed' : 'Task marked as not completed'),
+            backgroundColor: updatedTask.isCompleted ? Colors.green : Colors.orange,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -664,20 +744,21 @@ class _SchedulePageState extends State<SchedulePage>
                         ? _buildEmptyState()
                         : ListView.builder(
                             physics: const BouncingScrollPhysics(),
-                  itemCount: _currentDayTasks.length,
-                  itemBuilder: (context, index) {
-                    final task = _currentDayTasks[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _TaskItem(
-                        task: task,
-                        onToggle: () => _toggleTaskCompletion(task),
-                        onDelete: () => _showDeleteConfirmation(task),
-                        onTaskUpdate: () => _loadTasks(),
-                      ),
-                    );
-                  },
-                ),
+                            padding: const EdgeInsets.only(bottom: 80),
+                            itemCount: _currentDayTasks.length,
+                            itemBuilder: (context, index) {
+                              final task = _currentDayTasks[index];
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: _TaskItem(
+                                  task: task,
+                                  onToggle: () => _toggleTaskCompletion(task),
+                                  onDelete: () => _showDeleteConfirmation(task),
+                                  onTaskUpdate: () => _refreshTasksAfterUpdate(),
+                                ),
+                              );
+                            },
+                          ),
               ),
             ],
           ),
@@ -689,7 +770,7 @@ class _SchedulePageState extends State<SchedulePage>
             context,
             MaterialPageRoute(builder: (context) => const CreateTaskPage()),
           );
-          _loadTasks();
+          _refreshTasksAfterUpdate();
         },
         backgroundColor: const Color(0xFF2F80ED),
         elevation: 4,
@@ -910,6 +991,29 @@ class _SchedulePageState extends State<SchedulePage>
       ),
     );
   }
+
+  Future<void> _refreshTasksAfterUpdate() async {
+    print('Updating tasks after editing/postponing');
+    await _loadTasks();
+    
+    // Scroll to current day (in case task date has changed)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToSelectedWeek();
+    });
+    
+    // Send notification about task changes so other pages (like HomePage) can update
+    try {
+      // Call global task update event if you have EventBus
+      // Or you can use SharedPreferences to set a flag
+      // which will lead to task updates when HomePage is next opened
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('tasks_updated', true);
+      await prefs.setInt('last_update_time', DateTime.now().millisecondsSinceEpoch);
+      print('Task update flag set');
+    } catch (e) {
+      print('Error trying to update task flag: $e');
+    }
+  }
 }
 
 class _TaskItem extends StatelessWidget {
@@ -947,9 +1051,11 @@ class _TaskItem extends StatelessWidget {
     final today = DateTime(now.year, now.month, now.day);
     final taskDate = DateTime(task.date.year, task.date.month, task.date.day);
     
-    // Якщо завдання на сьогодні, перевіряємо час закінчення
+    // For today's tasks, check end time
     if (taskDate.isAtSameMomentAs(today)) {
-      final [endHour, endMinute] = task.endTime.split(':').map(int.parse).toList();
+      final endTimeParts = task.endTime.split(':');
+      final endHour = int.parse(endTimeParts[0]);
+      final endMinute = int.parse(endTimeParts[1]);
       final taskEndTime = DateTime(
         taskDate.year,
         taskDate.month,
@@ -960,19 +1066,25 @@ class _TaskItem extends StatelessWidget {
       return !task.isCompleted && now.isAfter(taskEndTime);
     }
     
-    // Якщо завдання на інший день
+    // If task is postponed (has '_' in ID)
+    if (task.id.contains('_')) {
+      // For postponed tasks check only the new date
+      return !task.isCompleted && taskDate.isBefore(today);
+    }
+    
+    // For regular tasks check if they're in the past
     return !task.isCompleted && taskDate.isBefore(today);
   }
 
   @override
   Widget build(BuildContext context) {
-    final isOverdue = _isOverdue();
+    final bool isOverdue = _isOverdue();
     
     return Dismissible(
       key: Key(task.id),
       direction: DismissDirection.endToStart,
       confirmDismiss: (direction) async {
-        // Показуємо меню з опціями
+        // Show menu with options
         return await showModalBottomSheet<bool>(
           context: context,
           shape: const RoundedRectangleBorder(
@@ -996,14 +1108,14 @@ class _TaskItem extends StatelessWidget {
                   leading: const Icon(Icons.update, color: Color(0xFF2F80ED)),
                   title: const Text('Postpone task'),
                   onTap: () async {
-                    Navigator.pop(context, false); // Закриваємо меню
+                    Navigator.pop(context, false); // Close menu
                     final result = await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => PostponeTaskPage(task: task),
                       ),
                     );
-                    // Оновлюємо список після повернення, якщо були зміни
+                    // Update list after return if changes were made
                     if (result == true) {
                       onTaskUpdate();
                     }
@@ -1013,7 +1125,7 @@ class _TaskItem extends StatelessWidget {
                   leading: const Icon(Icons.delete_outline, color: Colors.red),
                   title: const Text('Delete task'),
                   onTap: () {
-                    Navigator.pop(context, false);
+                    Navigator.pop(context, true); // Return true to dismiss
                     onDelete?.call();
                   },
                 ),
@@ -1039,7 +1151,7 @@ class _TaskItem extends StatelessWidget {
       background: Container(
         decoration: BoxDecoration(
           color: Colors.red.shade100,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
         ),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
@@ -1050,92 +1162,88 @@ class _TaskItem extends StatelessWidget {
       ),
       child: InkWell(
         onTap: () async {
-          final result = await Navigator.push(
-            context,
+          final result = await Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) => TaskDetailsPage(task: task),
             ),
           );
-          // Оновлюємо список після повернення, якщо були зміни
+          
           if (result == true) {
             onTaskUpdate();
           }
         },
         child: Container(
-          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                spreadRadius: 1,
-                blurRadius: 4,
-                offset: const Offset(0, 1),
-              ),
-            ],
-            border: isOverdue ? Border.all(color: Colors.red.withOpacity(0.5), width: 1) : null,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isOverdue
+                  ? Colors.red.withOpacity(0.3)
+                  : Colors.grey.withOpacity(0.1),
+              width: 1,
+            ),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 4,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: _getCategoryColor(task.category),
-                  borderRadius: BorderRadius.circular(2),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: _getCategoryColor(task.category),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      task.name,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                        color: task.isCompleted 
-                            ? Colors.grey 
-                            : (isOverdue ? Colors.red.withOpacity(0.8) : Colors.black),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${task.startTime} - ${task.endTime}',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                        decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                      ),
-                    ),
-                    if (task.category.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.only(top: 4),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        task.name,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                          color: task.isCompleted 
+                              ? Colors.grey 
+                              : (isOverdue ? Colors.red.withOpacity(0.8) : Colors.black),
                         ),
-                        decoration: BoxDecoration(
-                          color: _getCategoryColor(task.category).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${task.startTime} - ${task.endTime}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                          decoration: task.isCompleted ? TextDecoration.lineThrough : null,
                         ),
-                        child: Text(
-                          task.category,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: task.isCompleted
-                                ? Colors.grey
-                                : _getCategoryColor(task.category).withOpacity(0.8),
+                      ),
+                      if (task.category.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _getCategoryColor(task.category).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            task.category,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: task.isCompleted
+                                  ? Colors.grey
+                                  : _getCategoryColor(task.category).withOpacity(0.8),
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              if (!isOverdue)
+                // Always show the complete button for all tasks, including overdue ones
                 GestureDetector(
                   onTap: onToggle,
                   child: Container(
@@ -1146,7 +1254,9 @@ class _TaskItem extends StatelessWidget {
                       border: Border.all(
                         color: task.isCompleted
                             ? const Color(0xFF2F80ED)
-                            : Colors.grey[400]!,
+                            : isOverdue 
+                                ? Colors.red[400]!
+                                : Colors.grey[400]!,
                         width: 2,
                       ),
                       color: task.isCompleted
@@ -1162,7 +1272,8 @@ class _TaskItem extends StatelessWidget {
                         : null,
                   ),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

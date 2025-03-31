@@ -31,37 +31,37 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   bool _remindMe = true;
   String _repeatOption = 'Weekly';
   double _reminderTime = 30;
-  
-  List<String> _categories = [];
+  bool _isLoadingCategories = true;
+
   final List<String> _defaultCategories = ['Personal', 'Health', 'Work'];
   final List<String> _repeatOptions = ['Daily', 'Weekly', 'Monthly', 'Never'];
+  List<CategoryEntity> _categoriesFromDb = [];
   NotificationService? _notificationService;
   late final TaskRepository _repository;
   late final CategoryRepository _categoryRepository;
-  List<CategoryEntity> _categoriesFromDb = [];
 
   @override
   void initState() {
     super.initState();
-    _initServices();
+    _initServices().then((_) {
+      _loadCategories();
+    });
+    
     _nameController = TextEditingController(text: widget.task.name);
     _noteController = TextEditingController(text: widget.task.note);
     _selectedDate = widget.task.date;
-    
+
     // Парсимо час початку та кінця
     final startTime = _parseTimeString(widget.task.startTime);
     final endTime = _parseTimeString(widget.task.endTime);
-    
+
     _selectedTimeRange = TimeRange(startTime: startTime, endTime: endTime);
     _selectedCategory = widget.task.category;
-    
+
     // Initialize reminder settings from task
     _remindMe = widget.task.remindMe;
     _reminderTime = widget.task.reminderMinutes.toDouble();
     _repeatOption = widget.task.repeatOption;
-
-    // Завантажуємо категорії
-    _loadCategories();
   }
 
   Future<void> _initServices() async {
@@ -83,47 +83,25 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   }
 
   Future<void> _loadCategories() async {
+    setState(() {
+      _isLoadingCategories = true;
+    });
+    
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
+      if (user != null) {
+        final categories = await _categoryRepository.getCategories(user.uid);
         setState(() {
-          _categories = _defaultCategories;
+          _categoriesFromDb = categories;
+          _isLoadingCategories = false;
         });
-        return;
+      } else {
+        setState(() {
+          _isLoadingCategories = false;
+        });
       }
-
-      final customCategories = await _categoryRepository.getCategories(user.uid);
-      _categoriesFromDb = customCategories;
-      
-      // Створюємо список усіх категорій
-      List<String> allCategories = List.from(_defaultCategories);
-      
-      // Додаємо користувацькі категорії
-      for (var category in customCategories) {
-        if (!allCategories.contains(category.name)) {
-          allCategories.add(category.name);
-        }
-      }
-      
-      // Додаємо поточну категорію завдання, якщо її немає в списку
-      if (!allCategories.contains(widget.task.category)) {
-        allCategories.add(widget.task.category);
-      }
-      
-      setState(() {
-        _categories = allCategories;
-      });
     } catch (e) {
       print('Помилка при завантаженні категорій: $e');
-      // У випадку помилки показуємо хоча б стандартні категорії та поточну категорію завдання
-      setState(() {
-        final uniqueCategories = <String>{..._defaultCategories};
-        if (!uniqueCategories.contains(widget.task.category)) {
-          uniqueCategories.add(widget.task.category);
-        }
-        _categories = uniqueCategories.toList();
-      });
-      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -131,6 +109,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
             backgroundColor: Colors.red,
           ),
         );
+        setState(() {
+          _isLoadingCategories = false;
+        });
       }
     }
   }
@@ -155,10 +136,11 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       if (_notificationService == null) {
         _notificationService = await NotificationService.getInstance();
       }
-      
+
       // Скасовуємо нотифікацію
       try {
-        await _notificationService!.cancelNotification(widget.task.name.hashCode);
+        await _notificationService!
+            .cancelNotification(widget.task.name.hashCode);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -170,10 +152,10 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         }
         return;
       }
-      
+
       // Видаляємо завдання
       await _repository.deleteTask(widget.task.name);
-      
+
       if (mounted) {
         Navigator.pop(context, true); // Повертаємо true при видаленні
         ScaffoldMessenger.of(context).showSnackBar(
@@ -220,7 +202,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         name: _nameController.text,
         note: _noteController.text,
         date: _selectedDate,
-        startTime: _selectedTimeRange.startTime.format(context).replaceAll(' ', ''),
+        startTime:
+            _selectedTimeRange.startTime.format(context).replaceAll(' ', ''),
         endTime: _selectedTimeRange.endTime.format(context).replaceAll(' ', ''),
         category: _selectedCategory,
         remindMe: _remindMe,
@@ -244,7 +227,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
       // Скасовуємо старе нагадування
       if (widget.task.remindMe) {
-        await _notificationService!.cancelNotification(widget.task.name.hashCode);
+        await _notificationService!
+            .cancelNotification(widget.task.name.hashCode);
       }
 
       // Оновлюємо завдання в базі даних
@@ -338,12 +322,12 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                 ),
                 filled: true,
                 fillColor: Colors.grey.shade100,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               ),
               maxLines: null,
             ),
             const SizedBox(height: 16),
-            
             const Text(
               'Note',
               style: TextStyle(
@@ -366,12 +350,12 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                 ),
                 filled: true,
                 fillColor: Colors.grey.shade100,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               ),
               maxLines: null,
             ),
             const SizedBox(height: 16),
-            
             const Text(
               'Date & Time',
               style: TextStyle(
@@ -386,7 +370,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                   child: GestureDetector(
                     onTap: () => _selectDate(context),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 12),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(8),
@@ -404,7 +389,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                   child: GestureDetector(
                     onTap: () => _selectTimeRange(context),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 12),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(8),
@@ -420,7 +406,6 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               ],
             ),
             const SizedBox(height: 16),
-            
             const Text(
               'Category',
               style: TextStyle(
@@ -431,51 +416,52 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
             const SizedBox(height: 8),
             SizedBox(
               height: 40,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _categories.length,
-                itemBuilder: (context, index) {
-                  final category = _categories[index];
-                  final isSelected = category == _selectedCategory;
-                  
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _selectedCategory = category;
-                      });
+              child: _isLoadingCategories 
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _categories.length,
+                    itemBuilder: (context, index) {
+                      final category = _categories[index];
+                      final isSelected = category == _selectedCategory;
+                      
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedCategory = category;
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected 
+                                ? _getCategoryColor(category).withOpacity(0.2) 
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isSelected
+                                  ? _getCategoryColor(category)
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          child: Text(
+                            category,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? _getCategoryColor(category)
+                                  : Colors.grey.shade800,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      );
                     },
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected 
-                            ? _getCategoryColor(category).withOpacity(0.2) 
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: isSelected
-                              ? _getCategoryColor(category)
-                              : Colors.grey.shade300,
-                        ),
-                      ),
-                      child: Text(
-                        category,
-                        style: TextStyle(
-                          color: isSelected
-                              ? _getCategoryColor(category)
-                              : Colors.grey.shade800,
-                          fontWeight: isSelected
-                              ? FontWeight.w600
-                              : FontWeight.normal,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
+                  ),
             ),
             const SizedBox(height: 24),
-            
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -498,7 +484,6 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               ],
             ),
             const SizedBox(height: 4),
-            
             Slider(
               value: _reminderTime,
               min: 5,
@@ -507,14 +492,15 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               activeColor: Colors.blue,
               inactiveColor: Colors.blue.withOpacity(0.2),
               label: '${_reminderTime.round()} minutes before',
-              onChanged: _remindMe ? (value) {
-                setState(() {
-                  _reminderTime = value;
-                });
-              } : null,
+              onChanged: _remindMe
+                  ? (value) {
+                      setState(() {
+                        _reminderTime = value;
+                      });
+                    }
+                  : null,
             ),
             const SizedBox(height: 16),
-            
             Row(
               children: [
                 const Text(
@@ -529,12 +515,11 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               ],
             ),
             const SizedBox(height: 12),
-            
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: _repeatOptions.map((option) {
                 final isSelected = option == _repeatOption;
-                
+
                 return Row(
                   children: [
                     Radio<String>(
@@ -551,7 +536,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                       option,
                       style: TextStyle(
                         color: isSelected ? Colors.blue : Colors.grey.shade800,
-                        fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
+                        fontWeight:
+                            isSelected ? FontWeight.w500 : FontWeight.normal,
                       ),
                     ),
                   ],
@@ -559,7 +545,6 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               }).toList(),
             ),
             const SizedBox(height: 32),
-            
             Row(
               children: [
                 Expanded(
@@ -593,7 +578,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                           context: context,
                           builder: (context) => AlertDialog(
                             title: const Text('Delete Task'),
-                            content: const Text('Are you sure you want to delete this task?'),
+                            content: const Text(
+                                'Are you sure you want to delete this task?'),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(context),
@@ -637,7 +623,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       ),
     );
   }
-  
+
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -651,13 +637,13 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       });
     }
   }
-  
+
   Future<void> _selectTimeRange(BuildContext context) async {
     final TimeOfDay? startTime = await showTimePicker(
       context: context,
       initialTime: _selectedTimeRange.startTime,
     );
-    
+
     if (startTime != null) {
       // Add one hour for end time by default
       final endHour = (startTime.hour + 1) % 24;
@@ -665,31 +651,52 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         context: context,
         initialTime: TimeOfDay(hour: endHour, minute: startTime.minute),
       );
-      
+
       if (endTime != null) {
         setState(() {
-          _selectedTimeRange = TimeRange(startTime: startTime, endTime: endTime);
+          _selectedTimeRange =
+              TimeRange(startTime: startTime, endTime: endTime);
         });
       }
     }
   }
-  
+
+  List<String> get _categories {
+    List<String> categories = List.from(_defaultCategories);
+    
+    // Додаємо категорії з бази даних
+    for (var category in _categoriesFromDb) {
+      if (!categories.contains(category.name)) {
+        categories.add(category.name);
+      }
+    }
+    
+    // Додаємо поточну категорію завдання, якщо її ще немає
+    if (!categories.contains(widget.task.category)) {
+      categories.add(widget.task.category);
+    }
+    
+    return categories;
+  }
+
   Color _getCategoryColor(String category) {
+    // Спочатку перевіряємо, чи є категорія в базі даних
     for (var dbCategory in _categoriesFromDb) {
       if (dbCategory.name == category) {
         return _getColorFromHex(dbCategory.colour);
       }
     }
     
-    switch (category.toLowerCase()) {
-      case 'personal':
-        return const Color(0xFF98E7EF);
-      case 'health':
-        return const Color(0xFFFFCCCC);
-      case 'work':
-        return const Color(0xFFFDEAAC);
+    // Потім перевіряємо стандартні категорії
+    switch (category) {
+      case 'Personal':
+        return const Color(0xFF2F80ED); // Blue
+      case 'Health':
+        return const Color(0xFFFF9B9B); // Pink/Red
+      case 'Work':
+        return const Color(0xFFFFB156); // Orange
       default:
-        return const Color(0xFFE0E0E0);
+        return Colors.blue;
     }
   }
 
@@ -705,6 +712,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 class TimeRange {
   final TimeOfDay startTime;
   final TimeOfDay endTime;
-  
+
   TimeRange({required this.startTime, required this.endTime});
-} 
+}
+
+

@@ -23,32 +23,24 @@ class _WelcomePageState extends State<WelcomePage> {
             children: [
               const Spacer(flex: 1),
               Container(
-                height: size.height * 0.4,
+                height: size.height * 0.45,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.white.withOpacity(0.8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.withOpacity(0.1),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    ),
+                  ],
                 ),
                 child: Center(
-                  child: Container(
-                    width: size.width * 0.8,
-                    height: size.width * 0.8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          Colors.white.withOpacity(0.6),
-                          Colors.white.withOpacity(0.1),
-                        ],
-                        stops: const [0.2, 1.0],
-                      ),
-                    ),
-                    child: Center(
-                      child: Image.asset(
-                        'assets/images/welcome_illustration.jpg',
-                        width: size.width * 0.6,
-                        height: size.width * 0.6,
-                        fit: BoxFit.contain,
-                      ),
+                  child: ClipOval(
+                    child: Image.asset(
+                      'assets/images/welcome_illustration.jpg',
+                      width: size.width,
+                      fit: BoxFit.contain,
                     ),
                   ),
                 ),
@@ -58,12 +50,13 @@ class _WelcomePageState extends State<WelcomePage> {
                 'Task Manager',
                 style: TextStyle(
                   fontSize: 32,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2F80ED),
                 ),
               ),
               const SizedBox(height: 16),
               const Text(
-                'This productive tool is designed to help\nyou better manage your task\nproject-wise conveniently',
+                'This productive tool helps you\nbetter organize your tasks\nand manage projects conveniently',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 16,
@@ -88,16 +81,16 @@ class _WelcomePageState extends State<WelcomePage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2F80ED),
                     foregroundColor: Colors.white,
-                    elevation: 0,
+                    elevation: 2,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                   child: const Text(
                     'Login',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -116,16 +109,16 @@ class _WelcomePageState extends State<WelcomePage> {
                   },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF2F80ED),
-                    side: const BorderSide(color: Color(0xFF2F80ED), width: 1),
+                    side: const BorderSide(color: Color(0xFF2F80ED), width: 1.5),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                   child: const Text(
-                    'Sign up',
+                    'Sign Up',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
