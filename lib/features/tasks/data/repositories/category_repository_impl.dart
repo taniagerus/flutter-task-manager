@@ -77,6 +77,15 @@ class CategoryRepositoryImpl implements CategoryRepository {
     }
   }
 
+  @override
+  Future<void> deleteCategory(String categoryId) async {
+    try {
+      await _firestore.collection('categories').doc(categoryId).delete();
+    } catch (e) {
+      throw Exception('Failed to delete category: $e');
+    }
+  }
+
   String _getIconName(IconData icon) {
     print('Конвертація іконки в назву: $icon');
     print('Унікальний код іконки: ${icon.codePoint}');

@@ -42,8 +42,20 @@ class _StatisticsPageState extends State<StatisticsPage> {
   void _initDateRange() {
     // Calculate Monday and Sunday of current week
     final now = DateTime.now();
-    _startDate = now.subtract(Duration(days: now.weekday - 1));
-    _endDate = _startDate.add(const Duration(days: 6));
+    
+    // Визначаємо понеділок поточного тижня
+    // weekday повертає 1 для понеділка, 7 для неділі
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    
+    // Визначаємо початок дня для понеділка (00:00:00)
+    _startDate = DateTime(monday.year, monday.month, monday.day);
+    
+    // Визначаємо кінець дня для неділі (23:59:59)
+    final sunday = _startDate.add(const Duration(days: 6));
+    _endDate = DateTime(sunday.year, sunday.month, sunday.day, 23, 59, 59);
+    
+    // Встановлюємо текст діапазону дат
+    _dateRangeText = 'This week';
   }
 
   Future<void> _loadStatistics() async {
@@ -138,8 +150,9 @@ class _StatisticsPageState extends State<StatisticsPage> {
     
     if (picked != null) {
       setState(() {
-        _startDate = picked.start;
-        _endDate = picked.end;
+        // Встановлюємо початок і кінець дня для вибраного діапазону
+        _startDate = DateTime(picked.start.year, picked.start.month, picked.start.day, 0, 0, 0);
+        _endDate = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
         
         // Update date range text
         if (_startDate.year == _endDate.year && 
@@ -226,6 +239,18 @@ class _StatisticsPageState extends State<StatisticsPage> {
                           ),
                         ),
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Додаємо швидкі кнопки для вибору періодів
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildQuickDateButton('Today', _selectToday),
+                        const SizedBox(width: 8),
+                        _buildQuickDateButton('This week', _selectThisWeek),
+                        const SizedBox(width: 8),
+                        _buildQuickDateButton('This month', _selectThisMonth),
+                      ],
                     ),
                     const SizedBox(height: 24),
                     Row(
@@ -560,6 +585,82 @@ class _StatisticsPageState extends State<StatisticsPage> {
           ),
         ),
       ],
+    );
+  }
+
+  // Додаємо методи для швидкого вибору періодів
+  void _selectToday() {
+    setState(() {
+      final now = DateTime.now();
+      // Встановлюємо початок і кінець поточного дня
+      _startDate = DateTime(now.year, now.month, now.day, 0, 0, 0);
+      _endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+      _dateRangeText = 'Today';
+    });
+    _loadStatistics();
+  }
+  
+  void _selectThisWeek() {
+    // Повторно використовуємо логіку з _initDateRange
+    setState(() {
+      final now = DateTime.now();
+      
+      // Визначаємо понеділок поточного тижня
+      final monday = now.subtract(Duration(days: now.weekday - 1));
+      
+      // Встановлюємо початок і кінець тижня
+      _startDate = DateTime(monday.year, monday.month, monday.day);
+      final sunday = _startDate.add(const Duration(days: 6));
+      _endDate = DateTime(sunday.year, sunday.month, sunday.day, 23, 59, 59);
+      
+      _dateRangeText = 'This week';
+    });
+    _loadStatistics();
+  }
+  
+  void _selectThisMonth() {
+    setState(() {
+      final now = DateTime.now();
+      
+      // Перший день поточного місяця
+      _startDate = DateTime(now.year, now.month, 1);
+      
+      // Останній день поточного місяця
+      // Визначаємо перший день наступного місяця і віднімаємо 1 день
+      final lastDay = (now.month < 12)
+          ? DateTime(now.year, now.month + 1, 1).subtract(const Duration(days: 1))
+          : DateTime(now.year + 1, 1, 1).subtract(const Duration(days: 1));
+      
+      _endDate = DateTime(lastDay.year, lastDay.month, lastDay.day, 23, 59, 59);
+      _dateRangeText = 'This month';
+    });
+    _loadStatistics();
+  }
+  
+  // Виджет кнопки для швидкого вибору періоду
+  Widget _buildQuickDateButton(String label, VoidCallback onPressed) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _dateRangeText == label 
+            ? const Color(0xFF2F80ED) 
+            : const Color(0xFFEEF7FF),
+        foregroundColor: _dateRangeText == label 
+            ? Colors.white 
+            : const Color(0xFF2F80ED),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
     );
   }
 }

@@ -112,6 +112,21 @@ class TaskRepositoryImpl implements TaskRepository {
     }
   }
 
+  Future<int> countTasksByCategory(String userId, String categoryName) async {
+    try {
+      final snapshot = await _firestore
+          .collection('tasks')
+          .where('userId', isEqualTo: userId)
+          .where('category', isEqualTo: categoryName)
+          .get();
+          
+      return snapshot.docs.length;
+    } catch (e) {
+      print('Error counting tasks by category: $e');
+      return 0;
+    }
+  }
+
   Future<Map<String, dynamic>> getTaskStatistics(String userId, {DateTime? startDate, DateTime? endDate}) async {
     try {
       final now = DateTime.now();

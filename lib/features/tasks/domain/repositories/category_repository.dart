@@ -11,4 +11,5 @@ abstract class CategoryRepository {
     required String userId,
     bool isDefault = false,
   });
+  Future<void> deleteCategory(String categoryId);
 }

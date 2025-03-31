@@ -5,10 +5,14 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
   static NotificationService? _instance;
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+  
+  // Додаємо змінну для відстеження стану нотифікацій
+  bool _notificationsEnabled = true;
 
   // Константи для нотифікацій
   static const _blue = Color.fromARGB(255, 47, 128, 237);
@@ -33,6 +37,9 @@ class NotificationService {
 
   Future<void> _init() async {
     try {
+      // Завантажуємо збережений стан нотифікацій
+      await _loadNotificationSettings();
+      
       // Ініціалізуємо часові зони
       tz.initializeTimeZones();
       
@@ -88,6 +95,12 @@ class NotificationService {
   try {
     print('Планування нотифікації для: $title');
     print('Запланований час (UTC): $scheduledDate');
+    
+    // Перевіряємо, чи увімкнуті нотифікації в налаштуваннях
+    if (!_notificationsEnabled) {
+      print('Нотифікацію не буде показано - нотифікації вимкнені у налаштуваннях');
+      return;
+    }
     
     // Перевіряємо дозволи перед плануванням
     final hasPermission = await requestNotificationPermissions();
@@ -230,6 +243,40 @@ class NotificationService {
     } catch (e) {
       print('Помилка при запиті дозволів на нотифікації: $e');
       return false;
+    }
+  }
+
+  // Додаємо методи для керування станом нотифікацій
+  void setNotificationsEnabled(bool enabled) {
+    _notificationsEnabled = enabled;
+    print('Нотифікації ${enabled ? "увімкнено" : "вимкнено"}');
+    _saveNotificationSettings();
+  }
+  
+  bool isNotificationsEnabled() {
+    return _notificationsEnabled;
+  }
+  
+  // Збереження стану нотифікацій
+  Future<void> _saveNotificationSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notifications_enabled', _notificationsEnabled);
+      print('Налаштування нотифікацій збережено: ${_notificationsEnabled ? "увімкнено" : "вимкнено"}');
+    } catch (e) {
+      print('Помилка при збереженні налаштувань нотифікацій: $e');
+    }
+  }
+  
+  // Завантаження стану нотифікацій
+  Future<void> _loadNotificationSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _notificationsEnabled = prefs.getBool('notifications_enabled') ?? true;
+      print('Налаштування нотифікацій завантажено: ${_notificationsEnabled ? "увімкнено" : "вимкнено"}');
+    } catch (e) {
+      print('Помилка при завантаженні налаштувань нотифікацій: $e');
+      _notificationsEnabled = true; // за замовчуванням увімкнено
     }
   }
 } 

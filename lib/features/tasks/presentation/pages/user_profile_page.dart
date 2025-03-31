@@ -33,6 +33,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
   Future<void> _initNotificationService() async {
     try {
       _notificationService = await NotificationService.getInstance();
+      
+      // Синхронізуємо стан нотифікацій з сервісом
+      setState(() {
+        _notificationsEnabled = _notificationService!.isNotificationsEnabled();
+      });
+      
     } catch (e) {
       print('Помилка при ініціалізації нотифікацій: $e');
       if (mounted) {
@@ -91,6 +97,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
         // Скасовуємо всі нотифікації
         await _notificationService!.cancelAllNotifications();
       }
+      
+      // Встановлюємо стан нотифікацій у сервісі
+      _notificationService!.setNotificationsEnabled(value);
 
       setState(() {
         _notificationsEnabled = value;

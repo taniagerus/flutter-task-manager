@@ -45,7 +45,7 @@ class _SchedulePageState extends State<SchedulePage>
     _loadTasks();
     _visibleMonth = _selectedDate;
     _weekScrollController = ScrollController();
-    // Початкова прокрутка до поточного тижня
+    // Initial scroll to current week
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToSelectedWeek();
     });
@@ -68,11 +68,11 @@ class _SchedulePageState extends State<SchedulePage>
     try {
       _notificationService = await NotificationService.getInstance();
     } catch (e) {
-      print('Помилка при ініціалізації нотифікацій: $e');
+      print('Error initializing notifications: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Помилка при налаштуванні нотифікацій'),
+            content: Text('Error setting up notifications'),
             backgroundColor: Colors.red,
           ),
         );
@@ -97,13 +97,13 @@ class _SchedulePageState extends State<SchedulePage>
     try {
       final tasks = await _repository.getTasks(FirebaseAuth.instance.currentUser!.uid);
       
-      // Сортуємо завдання за датою та часом
+      // Sort tasks by date and time
       tasks.sort((a, b) {
-        // Спочатку порівнюємо дати
+        // First compare dates
         final dateComparison = a.date.compareTo(b.date);
         if (dateComparison != 0) return dateComparison;
         
-        // Якщо дати однакові, порівнюємо час початку
+        // If dates are the same, compare start times
         final aStartComponents = a.startTime.split(':');
         final bStartComponents = b.startTime.split(':');
         
@@ -162,7 +162,7 @@ class _SchedulePageState extends State<SchedulePage>
                 tasksByDate[futureDate] = [];
               }
               
-              // Створюємо копію завдання з новою датою
+              // Create a copy of the task with a new date
               final repeatedTask = TaskEntity(
                 id: '${task.id}_${DateFormat('yyyyMMdd').format(futureDate)}',
                 name: task.name,
@@ -191,11 +191,11 @@ class _SchedulePageState extends State<SchedulePage>
         }
       }
       
-      // Сортуємо завдання для поточного дня окремо
+      // Sort tasks for the current day separately
       final selectedDateKey = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
       final todayTasks = tasksByDate[selectedDateKey] ?? [];
       
-      // Сортуємо за часом початку (від найраніших до найпізніших)
+      // Sort by start time (from earliest to latest)
       todayTasks.sort((a, b) {
         final aStartComponents = a.startTime.split(':');
         final bStartComponents = b.startTime.split(':');
@@ -211,17 +211,17 @@ class _SchedulePageState extends State<SchedulePage>
         return aStartMinute.compareTo(bStartMinute);
       });
 
-      // Оновлюємо мапу завдань, що автоматично оновить геттер _currentDayTasks
+      // Update the task map, which will automatically update the _currentDayTasks getter
       setState(() {
         _tasksByDate = tasksByDate;
         _isLoading = false;
       });
       
-      print('Завантажено ${tasks.length} завдань');
-      print('Завдань на ${DateFormat('yyyy-MM-dd').format(_selectedDate)}: ${_currentDayTasks.length}');
+      print('Loaded ${tasks.length} tasks');
+      print('Tasks for ${DateFormat('yyyy-MM-dd').format(_selectedDate)}: ${_currentDayTasks.length}');
       
     } catch (e) {
-      print('Помилка при завантаженні завдань: $e');
+      print('Error loading tasks: $e');
       setState(() {
         _isLoading = false;
       });
@@ -234,7 +234,7 @@ class _SchedulePageState extends State<SchedulePage>
     
     final tasks = _tasksByDate[selectedDateKey] ?? [];
     
-    // Додатково сортуємо при кожному зверненні до геттера, щоб гарантувати правильний порядок
+    // Additionally sort on each getter access to ensure correct order
     if (tasks.isNotEmpty) {
       tasks.sort((a, b) {
         final aStartComponents = a.startTime.split(':');
@@ -262,10 +262,10 @@ class _SchedulePageState extends State<SchedulePage>
       _visibleMonth = focusedDay;
     });
     
-    // Перезавантажуємо завдання для обраного дня
+    // Reload tasks for selected day
     final selectedDateKey = DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
     
-    // Сортуємо за часом початку (від найраніших до найпізніших)
+    // Sort by start time (from earliest to latest)
     final dayTasks = _tasksByDate[selectedDateKey] ?? [];
     if (dayTasks.isNotEmpty) {
       dayTasks.sort((a, b) {
@@ -283,7 +283,7 @@ class _SchedulePageState extends State<SchedulePage>
         return aStartMinute.compareTo(bStartMinute);
       });
       
-      // Оновлюємо мапу завдань, щоб геттер _currentDayTasks повертав відсортований список
+      // Update the task map so the _currentDayTasks getter returns a sorted list
       setState(() {
         _tasksByDate[selectedDateKey] = dayTasks;
       });
@@ -335,14 +335,14 @@ class _SchedulePageState extends State<SchedulePage>
         _notificationService = await NotificationService.getInstance();
       }
       
-      // Скасовуємо нотифікацію
+      // Cancel notification
       try {
         await _notificationService!.cancelNotification(task.name.hashCode);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Помилка при скасуванні нагадування: $e'),
+              content: Text('Error canceling reminder: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -350,20 +350,20 @@ class _SchedulePageState extends State<SchedulePage>
         return;
       }
       
-      // Видаляємо завдання
+      // Delete task
       await _repository.deleteTask(taskId);
       _loadTasks();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Завдання успішно видалено')),
+          const SnackBar(content: Text('Task successfully deleted')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Помилка при видаленні завдання: $e'),
+            content: Text('Error deleting task: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -374,14 +374,18 @@ class _SchedulePageState extends State<SchedulePage>
   void _showDeleteConfirmation(TaskEntity task) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Drag indicator
             Container(
               width: 40,
               height: 4,
@@ -391,45 +395,158 @@ class _SchedulePageState extends State<SchedulePage>
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
+            
+            // Title
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: Text(
+                task.repeatOption != 'Never' 
+                    ? 'Delete Task?' 
+                    : 'Delete Task?',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            
+            // Subtitle for repeating tasks
+            if (task.repeatOption != 'Never')
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+                child: Text(
+                  'This task repeats ${task.repeatOption.toLowerCase()}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ),
+              
+            const SizedBox(height: 24),
+            
+            // Button options
             if (task.repeatOption != 'Never') ...[
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Delete this occurrence'),
-                onTap: () {
+              _buildDeleteButton(
+                context,
+                'Delete this occurrence',
+                'Delete only this event',
+                Icons.event_busy,
+                () {
                   Navigator.pop(context);
                   _deleteTask(task.id);
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.delete_forever, color: Colors.red),
-                title: const Text('Delete all occurrences'),
-                subtitle: Text('Will delete all ${task.repeatOption.toLowerCase()} repetitions'),
-                onTap: () {
+              const SizedBox(height: 12),
+              _buildDeleteButton(
+                context,
+                'Delete all occurrences',
+                'Delete all ${task.repeatOption.toLowerCase()} occurrences',
+                Icons.delete_forever,
+                () {
                   Navigator.pop(context);
-                  _deleteTask(task.id.split('_')[0]); // Delete original task
+                  _deleteTask(task.id.split('_')[0]);
                 },
+                isDestructive: true,
               ),
             ] else
-              ListTile(
-                leading: const Icon(Icons.delete, color: Colors.red),
-                title: const Text('Delete task'),
-                onTap: () {
+              _buildDeleteButton(
+                context,
+                'Delete task',
+                'This task will be permanently deleted',
+                Icons.delete_outline,
+                () {
                   Navigator.pop(context);
                   _deleteTask(task.id);
                 },
               ),
-            const SizedBox(height: 8),
+            
+            const SizedBox(height: 16),
+            
+            // Cancel button
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.grey,
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Text('Cancel'),
                 ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(
+                    color: Color(0xFF2F80ED),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeleteButton(
+    BuildContext context, 
+    String title, 
+    String subtitle, 
+    IconData icon, 
+    VoidCallback onPressed, 
+    {bool isDestructive = false}
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isDestructive ? Colors.red.shade50 : Colors.grey.shade50,
+          foregroundColor: isDestructive ? Colors.red : Colors.black87,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(
+              color: isDestructive ? Colors.red.shade200 : Colors.grey.shade300,
+              width: 1,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isDestructive ? Colors.red : const Color(0xFF2F80ED),
+              size: 24,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: isDestructive ? Colors.red : Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1125,8 +1242,12 @@ class _TaskItem extends StatelessWidget {
                   leading: const Icon(Icons.delete_outline, color: Colors.red),
                   title: const Text('Delete task'),
                   onTap: () {
-                    Navigator.pop(context, true); // Return true to dismiss
-                    onDelete?.call();
+                    // Close menu without confirming dismissible
+                    Navigator.pop(context, false); 
+                    // Call delete method directly
+                    if (onDelete != null) {
+                      onDelete!();
+                    }
                   },
                 ),
                 const SizedBox(height: 8),

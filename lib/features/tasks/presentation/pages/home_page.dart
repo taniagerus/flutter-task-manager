@@ -367,30 +367,40 @@ class _HomePageState extends State<HomePage> {
 
   // Build default category cards when list is empty
   List<Widget> _buildDefaultCategoryCards() {
+    if (currentUser == null) {
+      return [];
+    }
+    
     return [
       _CategoryCard(
+        id: 'health-${currentUser!.uid}',
         icon: Icons.favorite_outline,
         title: 'Health',
         color: const Color(0xFFFFE5E5),
         iconColor: const Color(0xFFFF9B9B),
         tasksLeft: 0,
         tasksDone: 0,
+        isDefault: true,
       ),
       _CategoryCard(
+        id: 'personal-${currentUser!.uid}',
         icon: Icons.person_outline,
         title: 'Personal',
         color: const Color(0xFFE5F1FF),
         iconColor: const Color(0xFF2F80ED),
         tasksLeft: 0,
         tasksDone: 0,
+        isDefault: true,
       ),
       _CategoryCard(
+        id: 'work-${currentUser!.uid}',
         icon: Icons.work_outline,
         title: 'Work',
         color: const Color(0xFFFFF4E5),
         iconColor: const Color(0xFFFFB156),
         tasksLeft: 0,
         tasksDone: 0,
+        isDefault: true,
       ),
       _AddCategoryCard(
         onCategoryCreated: () {
@@ -700,12 +710,15 @@ class _HomePageState extends State<HomePage> {
                             print('Using icon: $iconData for category ${category.name} with color $iconColor');
                             
                             return _CategoryCard(
+                              id: category.id,
                               icon: iconData,
                               title: category.name,
                               color: _hexToColor(category.colour),
                               iconColor: iconColor,
                               tasksLeft: 2,
                               tasksDone: 2,
+                              isDefault: category.isDefault,
+                              onDelete: () => _deleteCategory(category),
                             );
                           },
                         ),
@@ -749,66 +762,187 @@ class _HomePageState extends State<HomePage> {
     
     return const SizedBox.shrink();
   }
+  
+  Future<void> _deleteCategory(CategoryEntity category) async {
+    if (category.isDefault) {
+      // Don't allow deleting default categories
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Default categories cannot be deleted')),
+      );
+      return;
+    }
+    
+    // Check if there are tasks assigned to this category
+    final taskCount = await _taskRepository.countTasksByCategory(currentUser!.uid, category.name);
+    
+    if (taskCount > 0) {
+      // There are tasks using this category, ask for confirmation
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete Category?'),
+          content: Text('This category has $taskCount task${taskCount > 1 ? 's' : ''}. Deleting it will also delete all associated tasks.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      
+      if (result != true) {
+        return; // User canceled the operation
+      }
+      
+      // Delete all tasks in this category
+      try {
+        final tasks = await _taskRepository.getTasks(currentUser!.uid);
+        final tasksToDelete = tasks.where((task) => task.category == category.name).toList();
+        
+        for (var task in tasksToDelete) {
+          await _taskRepository.deleteTask(task.id);
+        }
+      } catch (e) {
+        print('Error deleting tasks for category: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting tasks: $e')),
+        );
+        return;
+      }
+    } else {
+      // No tasks, but still ask for confirmation
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete Category?'),
+          content: const Text('Are you sure you want to delete this category?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      
+      if (result != true) {
+        return; // User canceled the operation
+      }
+    }
+    
+    // Delete the category
+    try {
+      await _categoryRepository.deleteCategory(category.id);
+      
+      // Reload categories
+      _loadCategories();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Category successfully deleted')),
+      );
+    } catch (e) {
+      print('Error deleting category: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting category: $e')),
+      );
+    }
+  }
 }
 
 class _CategoryCard extends StatelessWidget {
+  final String? id;
   final IconData icon;
   final String title;
   final Color color;
   final Color iconColor;
   final int tasksLeft;
   final int tasksDone;
+  final bool isDefault;
+  final VoidCallback? onDelete;
 
   const _CategoryCard({
+    this.id,
     required this.icon,
     required this.title,
     required this.color,
     required this.iconColor,
     required this.tasksLeft,
     required this.tasksDone,
+    this.isDefault = false,
+    this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            color: iconColor,
-            size: 24,
-          ),
-          const Spacer(),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+    return GestureDetector(
+      onLongPress: id != null && !isDefault && onDelete != null 
+          ? () => onDelete!() 
+          : null,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Icon(
+                  icon,
+                  color: iconColor,
+                  size: 24,
+                ),
+                if (id != null && !isDefault)
+                  Tooltip(
+                    message: 'Long press to delete',
+                    child: Icon(
+                      Icons.delete_outline,
+                      color: iconColor.withOpacity(0.5),
+                      size: 18,
+                    ),
+                  ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _TaskCountChip(
-                count: tasksLeft,
-                label: 'left',
-                backgroundColor: Colors.white.withOpacity(0.5),
+            const Spacer(),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
-              const SizedBox(width: 8),
-              _TaskCountChip(
-                count: tasksDone,
-                label: 'done',
-                backgroundColor: Colors.white.withOpacity(0.5),
-              ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _TaskCountChip(
+                  count: tasksLeft,
+                  label: 'left',
+                  backgroundColor: Colors.white.withOpacity(0.5),
+                ),
+                const SizedBox(width: 8),
+                _TaskCountChip(
+                  count: tasksDone,
+                  label: 'done',
+                  backgroundColor: Colors.white.withOpacity(0.5),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
