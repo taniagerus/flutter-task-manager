@@ -41,20 +41,15 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         password: password,
       );
 
-      // Update the user profile with the name
       await userCredential.user?.updateDisplayName(name);
-      
-      // Force reload the user to get updated data
       await userCredential.user?.reload();
-      
-      // Get the updated user data
       final updatedUser = _auth.currentUser;
       if (updatedUser == null) throw Exception('User not found after registration');
 
       return User(
         id: updatedUser.uid,
         email: updatedUser.email!,
-        name: name, // Use the provided name directly
+        name: name, 
       );
     } catch (e) {
       throw Exception('Failed to sign up: ${e.toString()}');
@@ -69,20 +64,13 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   @override
   Future<User> signInWithGoogle() async {
     try {
-      // Діалог вибору акаунта Google
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) throw Exception('Google sign in aborted');
-
-      // Отримуємо автентифікаційні дані
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      
-      // Створюємо обліковий запис Firebase
       final credential = firebase_auth.GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-
-      // Авторизуємось в Firebase
       final userCredential = await _auth.signInWithCredential(credential);
       final firebaseUser = userCredential.user;
       
@@ -95,9 +83,9 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
       );
     } catch (e) {
       if (e.toString().contains('12500')) {
-        throw Exception('Перевірте наявність та актуальність Google Play Services на вашому пристрої');
+        throw Exception('Check Google play servics');
       } else {
-        throw Exception('Помилка входу через Google: ${e.toString()}');
+        throw Exception('Error sign in with Google: ${e.toString()}');
       }
     }
   }
